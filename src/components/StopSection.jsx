@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, MapPin, Star } from 'lucide-react'
 import BusCard from './BusCard.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
+import RouteDetail from './RouteDetail.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
 import { formatDistance } from '../utils/format.js'
 
@@ -14,8 +15,14 @@ function sortByArrival(routes) {
   })
 }
 
+/** 路線卡片的識別 key（同一路線可能有不同方向／服務類型） */
+function routeEntryKey(entry) {
+  return `${entry.operator}-${entry.route}-${entry.direction}-${entry.serviceType}`
+}
+
 /**
  * 單一站點區塊：站名＋距離＋收藏，展開後列出各路線 ETA
+ * 路線卡片可再往下展開，顯示該條路線的完整站序（與搜尋頁的路線面板一致）。
  *
  * @param {object} props
  * @param {{stop:object, routes:Array, error:string|null}} props.group
@@ -40,17 +47,29 @@ export default function StopSection({
   onRetry,
 }) {
   const [showAll, setShowAll] = useState(false)
+  const [expandedRouteKey, setExpandedRouteKey] = useState(null)
   const sortedRoutes = useMemo(() => sortByArrival(group?.routes ?? []), [group?.routes])
   const stop = group?.stop ?? {}
   const visibleRoutes = showAll ? sortedRoutes : sortedRoutes.slice(0, 6)
   const bodyId = `stop-body-${stop.operator}-${stop.id}`
+
+  // 收起站點時一併把展開的路線收起來，避免下次開啟時莫名停在展開狀態
+  const handleToggle = () => {
+    if (expanded) setExpandedRouteKey(null)
+    onToggle?.()
+  }
+
+  const handleShowAll = () => {
+    setExpandedRouteKey(null)
+    setShowAll((prev) => !prev)
+  }
 
   return (
     <section className="card overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2.5">
         <button
           type="button"
-          onClick={onToggle}
+          onClick={handleToggle}
           aria-expanded={expanded}
           aria-controls={bodyId}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
@@ -91,7 +110,7 @@ export default function StopSection({
 
         <button
           type="button"
-          onClick={onToggle}
+          onClick={handleToggle}
           aria-label={expanded ? '收起路線' : '展開路線'}
           className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800"
         >
@@ -119,13 +138,31 @@ export default function StopSection({
 
           {sortedRoutes.length > 0 && (
             <>
-              {visibleRoutes.map((entry) => (
-                <BusCard key={`${entry.operator}-${entry.route}-${entry.direction}-${entry.serviceType}`} entry={entry} />
-              ))}
+              {visibleRoutes.map((entry) => {
+                const entryKey = routeEntryKey(entry)
+                const isRouteExpanded = expandedRouteKey === entryKey
+
+                return (
+                  <BusCard
+                    key={entryKey}
+                    entry={entry}
+                    expandable
+                    expanded={isRouteExpanded}
+                    onToggle={() =>
+                      setExpandedRouteKey((prev) => (prev === entryKey ? null : entryKey))
+                    }
+                  >
+                    <RouteDetail
+                      entry={entry}
+                      currentStopIds={[stop.id, ...(stop.siblingIds ?? [])]}
+                    />
+                  </BusCard>
+                )
+              })}
               {sortedRoutes.length > 6 && (
                 <button
                   type="button"
-                  onClick={() => setShowAll((prev) => !prev)}
+                  onClick={handleShowAll}
                   className="w-full rounded-xl border border-dashed border-slate-200 py-2 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   {showAll ? '只顯示最近 6 條路線' : `顯示全部 ${sortedRoutes.length} 條路線`}

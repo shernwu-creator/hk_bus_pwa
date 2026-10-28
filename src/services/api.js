@@ -724,6 +724,10 @@ function toGmbEntry(item, meta) {
     route: normalize(meta.route),
     direction: meta.direction,
     serviceType: '1',
+    // route_id / route_seq 是查「全路線站序」(route-stop) 的必要參數
+    routeId: meta.routeId,
+    routeSeq: meta.routeSeq,
+    orig: meta.origTc ?? '',
     destination: meta.destTc ?? '',
     destinationEn: meta.destEn ?? '',
     etas,
@@ -763,6 +767,9 @@ export async function getGmbStopEtas(stopId, siblingIds = []) {
         if (existing.etas.length === 0 && entry.etas.length > 0) {
           existing.destination = entry.destination
           existing.destinationEn = entry.destinationEn
+          existing.orig = entry.orig
+          existing.routeId = entry.routeId
+          existing.routeSeq = entry.routeSeq
         }
         existing.etas = [...existing.etas, ...entry.etas]
       }

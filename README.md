@@ -125,8 +125,9 @@ src/
 │  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 站序 → ETA
 │  └─ Favorites.jsx          # 已收藏站點（localStorage）
 ├─ components/
-│  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數
-│  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章）
+│  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（可點擊展開全路線站序）
+│  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、展開路線站序）
+│  ├─ RouteDetail.jsx        # 站點卡片內展開的路線全站序（標示「本站」）
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單
 │  ├─ SearchBar.jsx / OperatorBadge.jsx / BottomNav.jsx
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
@@ -190,6 +191,17 @@ scripts/
 `getFare(operator, route, serviceType)` 查 `fares.json`（key：`路線|service_type`），查不到回傳 `null`，UI 顯示「票價待查」。
 共同營運的路線會同時提供 KMB 與 CTB 兩份資料；小巴沒有官方票價來源。
 
+### 6.5 站點卡片內查看全路線站序
+
+站點展開後，每一張路線卡片本身就是按鈕（卡片底部有「查看全路線站序」提示）：
+
+1. `StopSection` 記錄被展開的路線（key：`operator-route-direction-serviceType`），同時只展開一條，再點一次即收合；收起站點時會一併重置。
+2. `RouteDetail` 以該筆 ETA 的欄位呼叫 `getRouteStops()`：
+   - KMB／CTB 用 `route + direction + serviceType`；
+   - GMB 需要 `routeId + routeSeq`，因此 `toGmbEntry()` 會把小巴對照表的這兩個值放進 ETA entry（合併同號路線時以「有班次」的那筆為準），否則 `/route-stop/{routeId}/{routeSeq}` 無從查起。
+3. 站序清單會標示「本站」；比對時同時帶入 `siblingIds`，所以九巴同一車站的其他月台也能正確標示。
+4. 資料只在展開時才抓（`RouteDetail` 未展開就不會 mount），不影響首次載入。
+
 
 ---
 
@@ -237,4 +249,5 @@ scripts/
 | GitHub Pages 白屏 | 建置未設定 `base`，資源全指向網站根目錄；Router 也沒有 basename。已補上 `base`、Router basename、manifest `start_url/scope`、`404.html` 與部署 workflow。 |
 | 靜態 JSON 拖慢 FCP | 城巴索引（350 KB）原本打包進主 chunk。已搬到 `public/data/`，改由 IndexedDB 延遲載入，主 bundle 不再包含站點索引。 |
 | 單一 ETA 失敗拖垮整頁 | `useBusData` 原本即使用 `Promise.allSettled`，本次補上站點索引的 `allSettled` 與更明確的錯誤訊息，確保部分失敗仍能顯示其他業者資料。 |
+| 站點內的路線卡片不能點開 | 卡片原本是純顯示。改為可點擊的按鈕（`BusCard` 的 `expandable` / `expanded`），展開時由新的 `RouteDetail` 呼叫 `getRouteStops()` 顯示全線站序並標示「本站」；小巴同時補上 `routeId` / `routeSeq` 才查得到站序。 |
 
