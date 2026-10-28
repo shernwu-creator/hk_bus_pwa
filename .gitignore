@@ -1,0 +1,108 @@
+# ==========================================
+# 1. 本地代碼圖譜與 AI 工具產物 (CodeGraph & AI Tools)
+# ==========================================
+# CodeGraph 本地 SQLite 圖譜與暫存資料夾
+.codegraph/
+*.codegraph
+AGENTS.md
+
+# Repomix 等 AI 上下文打包工具產物
+repomix-output.xml
+repomix-output.txt
+repomix-output.json
+*-output.xml
+
+# ==========================================
+# 2. 依賴套件 (Dependencies)
+# ==========================================
+node_modules/
+.pnp
+.pnp.js
+
+# ==========================================
+# 3. 建置產物與快取 (Vite & Build Artifacts)
+# ==========================================
+dist/
+dist-ssr/
+build/
+out/
+
+# Vite 快取
+.vite/
+*.local
+
+# 臨時腳本與暫存輸出
+tmp/
+
+# ==========================================
+# 4. 記錄檔與除錯日誌 (Logs)
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# 5. 環境變數與機密資訊 (Environment & Secrets)
+# ==========================================
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+
+# ==========================================
+# 6. 編輯器與作業系統檔案 (IDE & OS)
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# VS Code / Cursor / Cline
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==========================================
+# 7. 網頁遊戲開發大型原始素材 (Raw Game Assets & Work Files)
+# 排除體積龐大、未壓縮的多媒體設計原始檔（建議保留壓縮後的 webp/mp3 在 public/）
+# ==========================================
+# 影像與動畫設計原始檔
+*.psd
+*.ai
+*.aep
+*.prproj
+*.blend
+*.blend1
+*.fbx
+*.obj
+
+# 未壓縮音訊原始檔
+*.wav
+*.flac
+*.band
+*.logicx
+
+# ==========================================
+# 8. 測試與覆蓋率報告 (Testing)
+# ==========================================
+coverage/
+.nyc_output/
