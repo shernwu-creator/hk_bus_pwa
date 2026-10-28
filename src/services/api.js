@@ -665,11 +665,14 @@ export async function getKmbStopEtas(stopId, siblingIds = []) {
     } catch (error) {
       if (ids.length === 1) throw error
       console.warn(`[api] 九巴站點 ${id} 讀取失敗：${error.message}`)
-      return []
+      return null
     }
   })
 
-  return mergeEtaGroups(results)
+  // 只有「所有站牌都失敗」才算錯誤；單一月台失敗仍顯示其他月台的班次
+  const succeeded = results.filter((entries) => entries !== null)
+  if (succeeded.length === 0) throw new ApiError('九巴站點暫時無法提供到站資料，請稍後再試')
+  return mergeEtaGroups(succeeded)
 }
 
 /**
@@ -690,11 +693,17 @@ export async function getCitybusStopEtas(stopId, routes = []) {
       return json.data ?? []
     } catch (error) {
       console.warn(`[api] 城巴 ${route} @ ${stopId} 讀取失敗：${error.message}`)
-      return []
+      return null
     }
   })
 
-  return groupEtaRows('CTB', results.flat())
+  // 全部路線都失敗（同時請求過多、被 timeout 擋掉）才顯示錯誤；
+  // 若只是官方回空陣列（城巴偶發狀況）則照常顯示「暫無到站資料」。
+  const succeeded = results.filter((rows) => rows !== null)
+  if (succeeded.length === 0) {
+    throw new ApiError('城巴暫時無法提供到站資料，請稍後再試')
+  }
+  return groupEtaRows('CTB', succeeded.flat())
 }
 
 /** 小巴 ETA 一列一班車 → UI 共用格式 */
@@ -764,11 +773,14 @@ export async function getGmbStopEtas(stopId, siblingIds = []) {
     } catch (error) {
       if (ids.length === 1) throw error
       console.warn(`[api] 小巴站點 ${id} 讀取失敗：${error.message}`)
-      return []
+      return null
     }
   })
 
-  return mergeEtaGroups(results)
+  // 全部站牌都失敗才視為錯誤，單一站牌失敗仍顯示其他站牌的班次
+  const succeeded = results.filter((entries) => entries !== null)
+  if (succeeded.length === 0) throw new ApiError('小巴站點暫時無法提供到站資料，請稍後再試')
+  return mergeEtaGroups(succeeded)
 }
 
 /**
