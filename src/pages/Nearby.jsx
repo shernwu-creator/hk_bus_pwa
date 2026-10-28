@@ -71,20 +71,9 @@ export default function Nearby() {
     [stops, expandedKey],
   )
 
-  const etaRefs = useMemo(
-    () =>
-      expandedStop
-        ? [
-            {
-              operator: expandedStop.operator,
-              id: expandedStop.id,
-              routes: expandedStop.routes,
-              siblingIds: expandedStop.siblingIds,
-            },
-          ]
-        : [],
-    [expandedStop],
-  )
+  // 注意：refs 必須帶完整站點物件（站名等），否則展開後 StopSection 只能拿到站點編號，
+  // 標題會從中文站名變成「5B1C2D3E」這種代碼。
+  const etaRefs = useMemo(() => (expandedStop ? [{ ...expandedStop }] : []), [expandedStop])
 
   const {
     groups,
@@ -183,7 +172,7 @@ export default function Nearby() {
       {status === 'ready' && stops.length === 0 && (
         <EmptyState
           title="附近找不到站點"
-          description={`${radius} 公尺內沒有可查詢的九巴或城巴站點，試試擴大搜尋範圍。`}
+          description={`${radius} 公尺內沒有可查詢的九巴、城巴或小巴站點，試試擴大搜尋範圍。`}
           action={
             radius < 1000 ? (
               <button
@@ -226,7 +215,7 @@ export default function Nearby() {
 
       <footer className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pb-2 text-center text-[10px] leading-relaxed text-slate-400 dark:text-slate-500">
         <Star className="h-3 w-3" aria-hidden="true" />
-        <span>資料來源：DATA.GOV.HK（九巴／城巴實時到站、運輸署票價）</span>
+        <span>資料來源：DATA.GOV.HK（九巴／城巴／小巴實時到站、運輸署票價）</span>
         {etaUpdatedAt && <span>· 到站資料 {formatDateTime(etaUpdatedAt)}</span>}
         {getFareUpdatedAt() && <span>· 票價表 {formatDateTime(getFareUpdatedAt())}</span>}
       </footer>

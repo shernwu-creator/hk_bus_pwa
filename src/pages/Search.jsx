@@ -14,7 +14,7 @@ const POPULAR_ROUTES = ['1A', '6', '101', '112', '680', '962', 'A21', 'E33']
 const MAX_RESULTS = 60
 
 function routeKey(row) {
-  return `${row.operator}:${row.route}:${row.direction}:${row.serviceType}`
+  return row.id ?? `${row.operator}:${row.route}:${row.direction}:${row.serviceType}`
 }
 
 function matchesQuery(row, keyword) {
@@ -88,12 +88,7 @@ export default function Search() {
     setStops([])
     setExpandedId(null)
 
-    getRouteStops({
-      operator: selected.operator,
-      route: selected.route,
-      direction: selected.direction,
-      serviceType: selected.serviceType,
-    })
+    getRouteStops(selected)
       .then((list) => {
         if (cancelled) return
         setStops(list)
@@ -115,13 +110,8 @@ export default function Search() {
     [stops, expandedId],
   )
 
-  const etaRefs = useMemo(
-    () =>
-      expandedStop && selected
-        ? [{ operator: expandedStop.operator, id: expandedStop.id, routes: [selected.route] }]
-        : [],
-    [expandedStop, selected],
-  )
+  // 帶完整站點物件，展開後站名才不會退回站點編號
+  const etaRefs = useMemo(() => (expandedStop && selected ? [{ ...expandedStop }] : []), [expandedStop, selected])
 
   const { groups, loading: etaLoading } = useBusData(etaRefs, {
     enabled: Boolean(expandedStop),
@@ -182,7 +172,7 @@ export default function Search() {
             ))}
           </div>
           <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-            輸入完整或部分路線號碼即可同時搜尋九巴與城巴路線；選定方向後可展開任一站點，查看該路線最近三班車。
+            輸入完整或部分路線號碼即可同時搜尋九巴、城巴與專線小巴路線；選定方向後可展開任一站點，查看該路線最近三班車。
           </p>
         </section>
       )}

@@ -3,6 +3,7 @@ import { OPERATORS } from '../services/api.js'
 const BADGE_STYLES = {
   KMB: 'bg-kmb text-white shadow-sm',
   CTB: 'bg-ctb text-slate-900 shadow-sm',
+  GMB: 'bg-emerald-500 text-white shadow-sm', // 新增綠色小巴樣式
 }
 
 /**

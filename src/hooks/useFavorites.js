@@ -69,8 +69,9 @@ export default function useFavorites() {
               nameEn: stop.nameEn ?? '',
               lat: stop.lat ?? null,
               lng: stop.lng ?? null,
-              // 城巴需要路線清單才能查 ETA，因此一併保存
+              // 城巴需要路線清單才能查 ETA；九巴需要 siblingIds 才能合併同站月台
               routes: stop.routes ?? [],
+              siblingIds: stop.siblingIds ?? [],
               savedAt: Date.now(),
             },
             ...prev,

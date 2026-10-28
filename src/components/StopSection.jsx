@@ -64,7 +64,7 @@ export default function StopSection({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {stop.nameTc || stop.id}
+              {stop.nameTc || stop.nameEn || stop.id}
             </span>
             <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <OperatorBadge operator={stop.operator} />

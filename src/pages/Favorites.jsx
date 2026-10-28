@@ -19,19 +19,7 @@ export default function Favorites() {
     [favorites, expandedKey],
   )
 
-  const etaRefs = useMemo(
-    () =>
-      expandedFavorite
-        ? [
-            {
-              operator: expandedFavorite.operator,
-              id: expandedFavorite.id,
-              routes: expandedFavorite.routes ?? [],
-            },
-          ]
-        : [],
-    [expandedFavorite],
-  )
+  const etaRefs = useMemo(() => (expandedFavorite ? [{ ...expandedFavorite }] : []), [expandedFavorite])
 
   const { groups, loading: etaLoading, error: etaError, refresh } = useBusData(etaRefs, {
     enabled: Boolean(expandedFavorite),

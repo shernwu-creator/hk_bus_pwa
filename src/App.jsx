@@ -6,6 +6,12 @@ import Nearby from './pages/Nearby.jsx'
 import Search from './pages/Search.jsx'
 import useTheme from './hooks/useTheme.js'
 
+/**
+ * 部署在子路徑（GitHub Pages：/hk_bus_pwa/）時，Router 必須與 Vite 的 base 一致，
+ * 否則所有 <Link> 與巢狀路由都會指向網站根目錄。
+ */
+const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
+
 function Header() {
   const { isDark, toggleTheme } = useTheme()
 
@@ -20,7 +26,7 @@ function Header() {
             香港巴士實時到站
           </h1>
           <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-            九巴 KMB · 城巴 CTB · 票價與最近三班車
+            九巴 KMB · 城巴 CTB · 小巴 GMB · 票價與最近三班車
           </p>
         </div>
         <button
@@ -43,7 +49,7 @@ function Header() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={BASENAME}>
       <div className="flex min-h-screen flex-col">
         <Header />
         <main className="mx-auto w-full max-w-md flex-1 px-3 pb-24 pt-3">
