@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, MapPin, Star } from 'lucide-react'
 import BusCard from './BusCard.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
-import RouteDetail from './RouteDetail.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
 import { formatDistance } from '../utils/format.js'
+import { openRouteSequence } from '../utils/routeLinks.js'
 
 function sortByArrival(routes) {
   return [...routes].sort((a, b) => {
@@ -22,7 +22,7 @@ function routeEntryKey(entry) {
 
 /**
  * 單一站點區塊：站名＋距離＋收藏，展開後列出各路線 ETA
- * 路線卡片可再往下展開，顯示該條路線的完整站序（與搜尋頁的路線面板一致）。
+ * 點路線卡片會用新視窗開啟完整站序（見 src/utils/routeLinks.js），不再行內展開。
  *
  * @param {object} props
  * @param {{stop:object, routes:Array, error:string|null}} props.group
@@ -47,20 +47,16 @@ export default function StopSection({
   onRetry,
 }) {
   const [showAll, setShowAll] = useState(false)
-  const [expandedRouteKey, setExpandedRouteKey] = useState(null)
   const sortedRoutes = useMemo(() => sortByArrival(group?.routes ?? []), [group?.routes])
   const stop = group?.stop ?? {}
   const visibleRoutes = showAll ? sortedRoutes : sortedRoutes.slice(0, 6)
   const bodyId = `stop-body-${stop.operator}-${stop.id}`
 
-  // 收起站點時一併把展開的路線收起來，避免下次開啟時莫名停在展開狀態
   const handleToggle = () => {
-    if (expanded) setExpandedRouteKey(null)
     onToggle?.()
   }
 
   const handleShowAll = () => {
-    setExpandedRouteKey(null)
     setShowAll((prev) => !prev)
   }
 
@@ -138,27 +134,13 @@ export default function StopSection({
 
           {sortedRoutes.length > 0 && (
             <>
-              {visibleRoutes.map((entry) => {
-                const entryKey = routeEntryKey(entry)
-                const isRouteExpanded = expandedRouteKey === entryKey
-
-                return (
-                  <BusCard
-                    key={entryKey}
-                    entry={entry}
-                    expandable
-                    expanded={isRouteExpanded}
-                    onToggle={() =>
-                      setExpandedRouteKey((prev) => (prev === entryKey ? null : entryKey))
-                    }
-                  >
-                    <RouteDetail
-                      entry={entry}
-                      currentStopIds={[stop.id, ...(stop.siblingIds ?? [])]}
-                    />
-                  </BusCard>
-                )
-              })}
+              {visibleRoutes.map((entry) => (
+                <BusCard
+                  key={routeEntryKey(entry)}
+                  entry={entry}
+                  onClick={() => openRouteSequence(entry, stop)}
+                />
+              ))}
               {sortedRoutes.length > 6 && (
                 <button
                   type="button"

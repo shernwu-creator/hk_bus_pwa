@@ -4,7 +4,6 @@
 # CodeGraph 本地 SQLite 圖譜與暫存資料夾
 .codegraph/
 *.codegraph
-AGENTS.md
 
 # Repomix 等 AI 上下文打包工具產物
 repomix-output.xml

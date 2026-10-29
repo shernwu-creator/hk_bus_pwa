@@ -21,6 +21,8 @@ export const STATIC_DATA_TTL = 6 * 60 * 60 * 1000
 
 /** 同一次瀏覽階段內的記憶體快取，避免重複解析 JSON */
 const memory = new Map()
+/** 進行中的載入 Promise：同一檔名併發呼叫只 fetch 一次 */
+const inFlight = new Map()
 
 let dbPromise = null
 
@@ -98,6 +100,7 @@ export function staticDataUrl(name) {
 
 /**
  * 讀取靜態 JSON：記憶體 → IndexedDB（有效期內）→ 網絡
+ * 同一檔名的併發呼叫會共用同一個請求，避免重複下載（maxAge 以最先發起的那次為準）。
  *
  * @param {string} name public/data/ 內的檔名，例如 `citybus-stops.json`
  * @param {{maxAge?: number}} [options]
@@ -105,7 +108,18 @@ export function staticDataUrl(name) {
  */
 export async function loadStaticData(name, { maxAge = STATIC_DATA_TTL } = {}) {
   if (memory.has(name)) return memory.get(name)
+  if (inFlight.has(name)) return inFlight.get(name)
 
+  // 失敗時清掉進行中記錄，讓下次呼叫可以重試
+  const pending = loadUncached(name, maxAge).finally(() => {
+    inFlight.delete(name)
+  })
+  inFlight.set(name, pending)
+  return pending
+}
+
+/** 實際載入流程（不含 in-flight 去重） */
+async function loadUncached(name, maxAge) {
   const record = await readRecord(name)
   if (record && Date.now() - record.savedAt < maxAge) {
     memory.set(name, record.data)

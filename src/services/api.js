@@ -95,6 +95,8 @@ export async function mapWithConcurrency(items, limit, worker) {
 }
 
 const memoryCache = new Map()
+/** 進行中的 loader：同一 key 併發呼叫時共用同一個 Promise，避免重複網絡請求 */
+const inFlightCache = new Map()
 
 function readCache(key) {
   try {
@@ -116,7 +118,7 @@ function writeCache(key, value, ttl) {
   }
 }
 
-/** 記憶體 → localStorage → 網絡，三層快取 */
+/** 記憶體 → localStorage → 網絡，三層快取（同一 key 併發呼叫只載入一次） */
 async function withCache(key, ttl, loader) {
   if (memoryCache.has(key)) return memoryCache.get(key)
   const cached = readCache(key)
@@ -124,10 +126,21 @@ async function withCache(key, ttl, loader) {
     memoryCache.set(key, cached)
     return cached
   }
-  const value = await loader()
-  memoryCache.set(key, value)
-  writeCache(key, value, ttl)
-  return value
+  if (inFlightCache.has(key)) return inFlightCache.get(key)
+
+  // 包一層 Promise 記錄進行中請求；失敗時清掉記錄，讓下次呼叫可以重試
+  const pending = Promise.resolve()
+    .then(loader)
+    .then((value) => {
+      memoryCache.set(key, value)
+      writeCache(key, value, ttl)
+      return value
+    })
+    .finally(() => {
+      inFlightCache.delete(key)
+    })
+  inFlightCache.set(key, pending)
+  return pending
 }
 
 /** Haversine 公式：兩點間地表距離（公尺） */
@@ -272,12 +285,6 @@ const MAX_SIBLINGS = 5
 /** 合併月台時，時間差小於此值視為同一班車（毫秒） */
 const SIBLING_ETA_WINDOW = 60 * 1000
 
-/**
- * 附近站點：以座標篩選半徑內的 KMB + CTB 站點，依距離排序
- * 同一業者、同站名的相鄰站牌（九巴一個總站常有多個月台編號）會合併成一筆，
- * 其餘站牌編號放在 siblingIds，查 ETA 時一併合併顯示。
- * @returns {Promise<Array<{operator:string,id:string,nameTc:string,nameEn:string,lat:number,lng:number,routes:string[]|null,siblingIds:string[],distance:number}>>}
- */
 /**
  * 附近站點：以座標篩選半徑內的 KMB + CTB + GMB 站點，依距離排序
  * 同一業者、同站名的相鄰站牌（九巴一個總站常有多個月台編號）會合併成一筆，

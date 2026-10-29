@@ -36,8 +36,12 @@ function spaFallbackPlugin() {
 }
 
 // https://vite.dev/config/
-export default defineConfig(({ command }) => {
-  const base = withTrailingSlash(process.env.VITE_BASE_PATH ?? (command === 'build' ? DEFAULT_BASE : '/'))
+export default defineConfig(({ command, isPreview }) => {
+  // `vite preview` 也要沿用與建置相同的子路徑，否則 dist/index.html 內的
+  // /hk_bus_pwa/assets/* 會找不到（dev 仍用根路徑 '/'）。
+  const base = withTrailingSlash(
+    process.env.VITE_BASE_PATH ?? (command === 'build' || isPreview ? DEFAULT_BASE : '/'),
+  )
 
   return {
     base,

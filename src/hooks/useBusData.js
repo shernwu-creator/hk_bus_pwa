@@ -33,43 +33,57 @@ export default function useBusData(stopRefs = [], options = {}) {
 
     let cancelled = false
     let timer = null
+    let inFlight = false
     const stops = stopsRef.current
 
+    // 只在「前景」排下一次輪詢；背景中由 visibilitychange 負責停掉並於回到前景補更新
+    const scheduleNext = () => {
+      if (cancelled || document.hidden) return
+      timer = setTimeout(() => {
+        timer = null
+        load({ silent: true })
+      }, intervalMs)
+    }
+
     const load = async ({ silent }) => {
-      if (!cancelled) {
-        setState((prev) => ({
-          ...prev,
-          loading: !silent && prev.groups.length === 0,
-          refreshing: silent || prev.groups.length > 0,
-        }))
+      if (cancelled || inFlight) return
+      inFlight = true
+      setState((prev) => ({
+        ...prev,
+        loading: !silent && prev.groups.length === 0,
+        refreshing: silent || prev.groups.length > 0,
+      }))
+
+      try {
+        const results = await Promise.allSettled(stops.map((stop) => getStopEtas(stop)))
+        if (cancelled) return
+
+        const groups = stops.map((stop, index) => {
+          const result = results[index]
+          const routes = result.status === 'fulfilled' ? filterByRoute(result.value, routeFilter) : []
+          return {
+            stop,
+            routes,
+            error:
+              result.status === 'rejected'
+                ? result.reason?.message || '無法取得實時到站資料'
+                : null,
+          }
+        })
+
+        const allFailed = groups.length > 0 && groups.every((group) => group.error)
+        setState({
+          groups,
+          loading: false,
+          refreshing: false,
+          error: allFailed ? '暫時無法取得到站資料，請稍後再試' : null,
+          updatedAt: Date.now(),
+        })
+      } finally {
+        inFlight = false
+        // 請求完成時若已切到背景，scheduleNext 會直接跳過，不再背景下繼續輪詢
+        if (!cancelled) scheduleNext()
       }
-
-      const results = await Promise.allSettled(stops.map((stop) => getStopEtas(stop)))
-      if (cancelled) return
-
-      const groups = stops.map((stop, index) => {
-        const result = results[index]
-        const routes = result.status === 'fulfilled' ? filterByRoute(result.value, routeFilter) : []
-        return {
-          stop,
-          routes,
-          error:
-            result.status === 'rejected'
-              ? result.reason?.message || '無法取得實時到站資料'
-              : null,
-        }
-      })
-
-      const allFailed = groups.length > 0 && groups.every((group) => group.error)
-      setState({
-        groups,
-        loading: false,
-        refreshing: false,
-        error: allFailed ? '暫時無法取得到站資料，請稍後再試' : null,
-        updatedAt: Date.now(),
-      })
-
-      timer = setTimeout(() => load({ silent: true }), intervalMs)
     }
 
     load({ silent: false })
@@ -81,7 +95,8 @@ export default function useBusData(stopRefs = [], options = {}) {
         timer = null
         return
       }
-      if (!timer) load({ silent: true })
+      // 回到前景：沒有排定的輪詢且沒有進行中請求時，立即補一次 silent 更新
+      if (!timer && !inFlight) load({ silent: true })
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
