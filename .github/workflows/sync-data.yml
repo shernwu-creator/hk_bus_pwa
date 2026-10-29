@@ -1,0 +1,49 @@
+name: Auto Sync Bus Data
+
+on:
+  schedule:
+    # 設定為每週日凌晨 4:00 (香港時間) 執行 / UTC 時間為週六 20:00
+    - cron: '0 20 * * 6'
+  
+  # 允許在 GitHub 網頁上「Actions」頁籤中手動點擊按鈕觸發測試
+  workflow_dispatch: 
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    # 必須開啟寫入權限，GitHub Actions 機器人才能把檔案 Push 回你的 main 分支
+    permissions:
+      contents: write 
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run sync script
+        # 執行我們寫好的抓取腳本
+        run: node scripts/sync-data.mjs
+
+      - name: Commit and Push changes
+        run: |
+          # 設定 GitHub Actions 機器人的 Git 身份
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 只加入 src/data 裡面的變動
+          git add src/data/
+          
+          # 檢查暫存區是否有變動，若有才執行 commit 與 push
+          if git diff --staged --quiet; then
+            echo "🚌 巴士站點與票價資料無變動，無需 Commit。"
+          else
+            # 加入 [skip ci] 標籤，避免這次推播又觸發其他自動部署 (若未來有設定的話)
+            git commit -m "chore(data): 自動同步最新巴士站點與票價 [skip ci]"
+            git push
+            echo "✅ 資料更新已成功 Push 至倉庫！"
+          fi
