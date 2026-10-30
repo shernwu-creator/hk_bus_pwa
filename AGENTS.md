@@ -74,7 +74,10 @@ src/
 - **單一資料層**：所有 HTTP、快取、業者差異（KMB/CTB/GMB）都集中在 `src/services/api.js`；
   UI 只呼叫其匯出函式，不要在元件內直接 `fetch` 或自己組官方 URL。
 - **三班車**：每條路線固定顯示最近三班（`ETA_PER_ROUTE = 3`）；合併月台時 60 秒內視為同一班。
-- **業者差異**：KMB 用 `stop-eta`（一站查全部路線）；CTB 只能逐路線查 ETA，站點需帶 `routes`；
+- **業者差異**：KMB 用 `stop-eta`（一站查全部路線）；CTB 主要用批次端點
+  `https://rt.data.gov.hk/v1/transport/batch/stop-eta/CTB/{stopId}?lang=zh-hant`（一次拿該站全部路線），
+  失敗才退回逐路線 `.../eta/CTB/{stopId}/{route}`——**注意路徑順序是「站點 → 路線」**，
+  寫成 `{route}/{stopId}` 官方會回 200 但 `data` 永遠是空陣列（曾造成「有站點沒有到站時間」的 bug）。
   GMB 用 `routeId + routeSeq` 對照路線與方向（缺這兩個值查不到站序／反轉方向）。
 - **城巴／小巴索引**：城巴站點、小巴站點與路線索引來自 `public/data/*.json`（`npm run sync:data` 產生，
   勿手改），前端透過 IndexedDB 延遲載入。
@@ -84,6 +87,10 @@ src/
 - **新視窗站序頁**：路徑 `/route/:operator/:route/:direction`，query 參數
   `stop`（要高亮／展開的站）、`name`、`siblings`、`serviceType`、`routeId`、`routeSeq`、`orig`、`dest`。
   「反轉序列」按鈕會切到同路線的另一方向（GMB 需重新對照 `routeId/routeSeq`）。
+  「返回」按鈕優先用 `window.opener` 回到原分頁（因此 `openRouteSequence` 刻意不清除 opener），
+  其次 `history.back()`，最後回首頁。站序列可以收藏站點（與主 App 共用 `hkb:favorites:v1`）。
+- **附近站點排序**：小巴（GMB）一律排在最後；同組內已收藏站點優先於距離，其餘依距離。
+  不要為「統一排序」而改動路線站序（站序必須保持官方 seq 次序）。
 
 ## 3. 程式風格
 

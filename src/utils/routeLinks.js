@@ -60,7 +60,9 @@ export function buildRouteSequenceUrl(entry, stop) {
  *
  * - 優先 `window.open(url, '_blank')`；被瀏覽器／PWA 封鎖（回傳 null）時改用
  *   `window.location.assign(url)`，至少不讓點擊無反應。
- * - 成功開啟後把 `win.opener` 設為 null，避免新視窗透過 window.opener 反向操作本頁。
+ * - **保留 `win.opener`**（同源自家 App）：站序頁的「返回」按鈕需要它以
+ *   `window.opener.focus()` 回到原分頁再關閉；站序頁只會 focus／close 原分頁，
+ *   不會讀寫 opener 的 DOM。
  *
  * @param {object} entry 路線 ETA 資料
  * @param {object} [stop] 目前站點
@@ -77,10 +79,6 @@ export function openRouteSequence(entry, stop) {
     return null
   }
 
-  try {
-    win.opener = null
-  } catch {
-    // 跨來源或瀏覽器禁止設定時忽略即可
-  }
+  // 注意：不要清掉 win.opener —— 站序頁的「返回」按鈕要靠它聚焦回原分頁。
   return win
 }

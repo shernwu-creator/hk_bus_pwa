@@ -37,6 +37,10 @@ npm run generate:icons # 重新產生 public/ 內的 PNG 圖示（純 Node，無
 `sync:data` 會掃描 409 條城巴路線 × 2 方向、573 條小巴路線與其站序，並逐一查詢站點座標。
 建議每季或發現站點有異動時執行一次；小巴座標會沿用既有快照，重跑時只補新站。
 
+GitHub Actions 的 [`sync-data.yml`](./.github/workflows/sync-data.yml) 會每週日 04:00（香港時間）自動執行
+`node scripts/sync-data.mjs`，並把 `public/data/`（站點索引）與 `src/data/`（票價表）一起 commit／push，
+再觸發 Pages 部署，因此不必手動更新大檔。
+
 ---
 
 ## 2. GitHub Pages 部署
@@ -70,7 +74,8 @@ npm run generate:icons # 重新產生 public/ 內的 PNG 圖示（純 Node，無
 | CTB | 路線清單 | `https://rt.data.gov.hk/v2/transport/citybus/route/CTB` |
 | CTB | 路線站序 | `.../route-stop/CTB/{route}/{outbound\|inbound}` |
 | CTB | 單一站點 | `.../stop/{stopId}` |
-| CTB | ETA（一次一條路線） | `.../eta/CTB/{route}/{stopId}` |
+| CTB | 站點全部路線 ETA（批次，前端主要使用） | `https://rt.data.gov.hk/v1/transport/batch/stop-eta/CTB/{stopId}?lang=zh-hant` |
+| CTB | ETA（單一路線，批次失敗時備援） | `.../eta/CTB/{stopId}/{route}`（**順序是站點→路線**） |
 | GMB | 路線清單 | `https://data.etagmb.gov.hk/route/`（`data.routes.{HKI,KLN,NT}`） |
 | GMB | 路線細節（route_id / route_seq / 起訖站） | `.../route/{region}/{routeCode}` |
 | GMB | 路線站序 | `.../route-stop/{routeId}/{routeSeq}` |
@@ -189,6 +194,7 @@ scripts/
 
 - `groupEtaRows()`：把「一列一班車」整理成「一條路線一筆」，key 為 `路線|方向`（刻意不含 `service_type`，避免 5C 這種多服務類型重複顯示）。
 - `mergeEtaGroups()`：合併多個站牌的回應，同路線＋方向只留一筆，時間差 < 60 秒視為同一班車。
+- **城巴**：`getCitybusStopEtas()` 先打批次端點（一站一次拿全部路線，含索引未收錄的新路線），失敗才逐路線查詢備援；批次回應的 `dest`／`rmk` 會正規化成 `dest_tc`／`rmk_tc` 後併入 `groupEtaRows()`。
 - 小巴以 `route_id|route_seq` 對照路線號碼與方向（`route_seq` 1 = 去程、2 = 回程）。
 - 每個站點的 ETA 都包在 `Promise.allSettled` 裡，單一 API timeout 只會讓那一張卡片顯示錯誤，不會讓整頁崩潰。
 
@@ -208,16 +214,23 @@ scripts/
    所有狀態都從 URL 還原，因此**可直接分享、重新整理、上一頁**。
 3. 頁面以 `getRouteStops()` 取得全線站序（KMB／CTB 用 `route + direction + serviceType`；GMB 需要 `routeId + routeSeq`）。
 4. 來源站（query `stop`，並同時比對 `siblings` 月台 ID）會自動高亮並展開：
-   - 以 `getStopEtas()` 查該站 ETA，再以「路線＋方向」過濾出最近三班（城巴只帶 `routes: [route]`，一次請求即可）；
+   - 以 `getStopEtas()` 查該站 ETA，再以「路線＋方向」過濾出最近三班（城巴一次批次請求即可）；
    - `EtaSlots` 與站點卡片共用同一套三班車 UI；這個展開面板每 30 秒自動更新，也可手動刷新；
    - 站序載入後會把來源站捲到清單中央。
 5. **其他站點也可以點開**：任一列都是按鈕，點擊後展開該站的最近三班車（同時間只展開一站，再點收合），
    切站時舊請求與計時器會隨元件卸載一併取消。
-6. **反轉方向**：`getRouteIndex()` 找出同路線的另一方向（KMB 沿用 serviceType、優先 1；GMB 以起訖站對照＋相反 routeSeq 選出折返路線），
+6. **站點收藏**：每一列右側（摺疊箭頭左邊）都有星號，可即時收藏／取消收藏站點；收藏與主 App 共用
+   `hkb:favorites:v1`，靠 `storage` 事件跨分頁同步（站序頁收藏後，主 App 的「收藏」頁立即出現）。
+7. **返回**：標題列左上角「← 返回」會依序嘗試：
+   - `window.opener` 存在 → `opener.focus()` 後 `window.close()`（回到原本的 App 分頁，原本展開的站點狀態仍在）；
+     若瀏覽器不允許 script 關閉視窗，退回 App 首頁；
+   - 同視窗 fallback（彈窗被擋）且 `document.referrer` 是同源 App → `history.back()`；
+   - 其他（直接貼 URL 開新分頁）→ 返回 App 首頁。
+   為此 `openRouteSequence()` 刻意不再清除 `window.opener`。
+8. **反轉方向**：`getRouteIndex()` 找出同路線的另一方向（KMB 沿用 serviceType、優先 1；GMB 以起訖站對照＋相反 routeSeq 選出折返路線），
    以 `navigate(..., { replace: true })` 更新 URL（不新增瀏覽紀錄）並重新抓站序。
    反向站點 ID 通常不同，因此會先用站名、再用座標在反向站序中找回最接近的站點並自動展開；
    若另一方向不停靠附近位置，就只顯示站序、不標示「本站」。
-7. 新視窗的「關閉視窗」按鈕會嘗試 `window.close()`；若視窗不是由程式開啟、瀏覽器不允許關閉，會提示可直接關閉分頁或返回主頁。
 
 
 ---
@@ -236,13 +249,12 @@ scripts/
 
 ## 8. 已知限制
 
-- **城巴 ETA 偶爾整批空白**：`rt.data.gov.hk` 的城巴 ETA 曾回傳空 `data`（UI 顯示「暫無到站資料」），屬 API 端問題；九巴與小巴不受影響。
+- **城巴 ETA 已改走批次端點**：`/v1/transport/batch/stop-eta/CTB/{stopId}` 一次回傳該站所有路線的到站時間，請求數由最多 8 次降為 1 次；批次端點失敗時才退回逐路線查詢。**注意 v2 逐路線端點的正確順序是 `eta/CTB/{stopId}/{route}`，若寫反會回 200 但 `data` 永遠是空陣列**（這是舊版「城巴有站點卻沒有到站時間」的根因，已修正）。
 - **九巴全站點清單偶爾讀取失敗**：`data.etabus.gov.hk/.../stop`（約 1 MB）少數情況下會因官方限流／WAF 而回 403，站名會退回站點編號（ETA、站序、反轉方向仍可運作）；站點清單成功後會快取 12 小時。重新整理或稍後再試通常可恢復。
-- **新視窗可能被封鎖**：部分瀏覽器或「加入主畫面」的 PWA 環境會攔截 `window.open`，此時會自動退回同一視窗開啟站序頁，功能不變。
+- **新視窗可能被封鎖**：部分瀏覽器或「加入主畫面」的 PWA 環境會攔截 `window.open`，此時會自動退回同一視窗開啟站序頁，功能不變；站序頁的「返回」會優先回到原本的 App 分頁。
 - **反轉方向的站點對應是「盡力而為」**：本車站（含月台）以站名、再用 200 公尺內座標在反向站序中找回；若另一方向不停靠附近位置，只顯示站序、不標示「本站」。九巴反轉後該站 ETA 只查單一月台（原方向仍會合併 `siblingIds` 月台）。
 - **小巴反向 variant**：同一路線號碼可能有多個 `route_id`（不同班次描述），反轉時以起訖站互換＋相反 `route_seq` 評分挑選；單向行駛的 variant 會顯示「找不到另一方向」。
-- **靜態索引是快照**：新開辦的路線／新站點要重跑 `npm run sync:data` 才會出現（前端 IndexedDB 6 小時後也會重新抓取）。
-- 城巴站點若在索引中缺少路線清單，`getCitybusStopEtas()` 會拋出「缺少路線資料」錯誤（重新同步即可）。
+- **靜態索引是快照**：新開辦的路線／新站點要重跑 `npm run sync:data` 才會出現（前端 IndexedDB 6 小時後也會重新抓取）；GitHub Actions 每週日 04:00（香港時間）自動同步並提交 `public/data/` 與 `src/data/`。
 - 小巴 ETA 只回傳 `route_id`，若靜態索引尚未收錄該路線，該班次會被略過（重跑 `sync:data` 即可）。
 - 票價為運輸署提供的**全程收費**，非分段收費；小巴無票價。
 - 只支援九巴、城巴與專線小巴，未包含龍運、新大嶼山巴士、港鐵巴士與居民巴士。
@@ -256,7 +268,7 @@ scripts/
 - 讓新視窗站序頁的 `useStopEtas` 與 `useBusData` 共用同一套背景暫停／可見性邏輯（目前各自實作）。
 - 以 `IntersectionObserver` 延遲載入長站序清單。
 - 小巴票價：改接運輸署「綠色專線小巴收費」資料集，補上 `getFare('GMB', route)`。
-- 將 `public/data/*.json` 的同步搬進 GitHub Actions（定期更新站點索引，不必手動 commit 大檔）。
+- `sync-data` workflow 已會自動提交 `public/data/`＋`src/data/` 並觸發部署；可再補上失敗通知或改以 PR 審核資料變動。
 
 ---
 
@@ -264,12 +276,17 @@ scripts/
 
 | 問題／需求 | 處理 |
 | --- | --- |
+| **城巴有站點但沒有到站時間** | 根因：v2 逐路線 ETA 路徑順序寫反（`eta/CTB/{route}/{stopId}`），官方回 200 但 `data` 永遠是空陣列。已改為主要使用批次端點 `batch/stop-eta/CTB/{stopId}`（一次取全站所有路線），備援路徑修正為 `eta/CTB/{stopId}/{route}`。 |
+| **站序頁沒有返回方法（按 X 直接退出程式）** | 站序頁改為「返回」按鈕：優先用 `window.opener` 回到原本 App 分頁（同源自家頁面，保留原本站點展開狀態），否則 `history.back()`，最後回首頁；`openRouteSequence` 不再清除 opener。 |
+| **路線站序也要能收藏站點** | 站序每一列加星號收藏按鈕（`useFavorites`，與主 App 共用 localStorage／storage 事件同步）。 |
+| **附近站點排序：收藏優先、小巴最後** | `Nearby` 以「GMB 一律排最後 → 已收藏優先 → 距離」排序，收藏狀態改變即時重排。 |
 | **參考 App 1933：站點內點路線要開新視窗看站序** | 新增 `RouteSequence` 頁（`/route/:operator/:route/:direction`，URL 可分享）與 `routeLinks.js`；`StopSection`／`BusCard` 點路線卡即開新視窗，新視窗顯示完整站序。 |
 | **從哪個車站開啟就標示哪一站，並顯示三班即將到站** | 由 URL 帶入 `stop`／`siblings`／`name`，新視窗自動高亮「本站」、捲到清單中央並展開最近三班 ETA（`EtaSlots` 共用三格 UI、30 秒自動更新）。 |
 | **其他車站也要可以點開** | 站序每一列都是按鈕，可逐一展開該站的最近三班車（一次展開一站，切站會取消舊請求與計時器）。 |
 | **要有反轉序列按鈕查反方向** | 新視窗「反轉方向」以 `getRouteIndex()` 找同路線反向（KMB 沿用 serviceType、GMB 以起訖站＋routeSeq 評分），`replace` 更新 URL 並重新抓站序；再以站名／座標找回反向站點自動展開。 |
+| **自動同步 workflow 只 commit 票價** | `sync-data.yml` 改為同時 `git add public/data/`（站點索引）並移除 `[skip ci]`，資料更新會觸發 Pages 重新部署。 |
 | **效能：主程式一次載入所有頁面** | `App.jsx` 改為 `React.lazy` 分頁 chunk（主 chunk 約 330 kB → 272 kB raw／gzip 約 105 → 88 kB），新視窗頁獨立 chunk（約 15 kB）。 |
-| **效能：重複的網絡請求** | `withCache()`／`loadStaticData()` 加入進行中請求去重（同 key 併發只 fetch 一次，失敗可重試）；`useBusData` 修正切到背景仍輪詢的漏洞，回前景立即更新。 |
+| **效能：重複的網絡請求** | `withCache()`／`loadStaticData()` 加入進行中請求去重（同 key 併發只 fetch 一次，失敗可重試）；城巴 ETA 改批次端點；`useBusData` 修正切到背景仍輪詢的漏洞，回前景立即更新。 |
 | **AI 協作規範** | 新增 `AGENTS.md`（CodeGraph 優先探索、禁止大範圍 grep／讀檔）與 `codegraph init` 圖譜（`.codegraph/` 已列入 `.gitignore`）；刪除重複 JSDoc 並同步 README 快取 key。 |
 | 展開站點後名稱變成站點編號 | 展開時傳給 `useBusData` 的 refs 只帶 `operator/id/routes`，`StopSection` 拿不到 `nameTc`。改為傳完整站點物件（Nearby / Search / Favorites 三處），並還原被臨時加上的 `name_tc` 猜測欄位。 |
 | 小巴 ETA 端點錯 | `eta/route-stop/{routeId}/{stopId}` 並不存在（404）。正確用法是站點層級 `eta/stop/{stopId}`（一次拿全部路線），或 `eta/route-stop/{route_id}/{route_seq}/{stop_seq}`。 |

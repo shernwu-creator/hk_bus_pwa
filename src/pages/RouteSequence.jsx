@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+  ArrowLeft,
   ArrowLeftRight,
-  BusFront,
   ChevronDown,
   ExternalLink,
   MapPin,
   RefreshCw,
   Route as RouteIcon,
+  Star,
   TriangleAlert,
-  X,
 } from 'lucide-react'
 import EtaSlots from '../components/EtaSlots.jsx'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
+import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import {
   distanceInMeters,
   filterByRoute,
@@ -312,7 +313,8 @@ export default function RouteSequence() {
   const [stopsReloadToken, setStopsReloadToken] = useState(0)
   const [reverseStatus, setReverseStatus] = useState('idle')
   const [reverseError, setReverseError] = useState(null)
-  const [closeFailed, setCloseFailed] = useState(false)
+  const { favorites, toggleFavorite } = useFavorites()
+  const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
   const listRef = useRef(null)
   const sourceRef = useRef(null)
 
@@ -493,16 +495,42 @@ export default function RouteSequence() {
     serviceType,
   ])
 
-  // 新視窗是由應用程式 window.open 開啟時可直接關閉；若不行則顯示提示並提供返回主頁連結
-  const handleClose = useCallback(() => {
-    try {
+  // 「返回」依序嘗試：回到開啟此視窗的原分頁 → 上一頁 → 首頁。
+  // 站序頁通常是從 App 以 window.open 開啟，保留 window.opener 才能聚焦並關閉本視窗；
+  // 若 popup 被封鎖而改成同視窗導覽，就用 history.back() 回到原本的頁面。
+  const handleBack = useCallback(() => {
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.focus()
+      } catch {
+        // 忽略：跨來源或瀏覽器不允許 focus 時，仍嘗試關閉本視窗
+      }
       window.close()
-    } catch {
-      // 忽略：瀏覽器不允許時下方會顯示提示
+      // 有些環境（PWA／被使用者設定攔截）不允許 script 關閉視窗：退回 App 首頁
+      window.setTimeout(() => {
+        if (!window.closed) window.location.assign(HOME_URL)
+      }, 200)
+      return
     }
-    window.setTimeout(() => {
-      if (!window.closed) setCloseFailed(true)
-    }, 150)
+
+    // 同視窗 fallback：只有 referrer 是同源 App 頁面時才 history.back()，
+    // 避免「直接貼網址開新分頁」時 back 回到空白頁或外部網站。
+    const sameOriginReferrer = (() => {
+      try {
+        return (
+          Boolean(document.referrer) &&
+          new URL(document.referrer).origin === window.location.origin
+        )
+      } catch {
+        return false
+      }
+    })()
+    if (window.history.length > 1 && sameOriginReferrer) {
+      window.history.back()
+      return
+    }
+
+    window.location.assign(HOME_URL)
   }, [])
 
   const isReversing = reverseStatus === 'loading'
@@ -511,10 +539,17 @@ export default function RouteSequence() {
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
       <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200/70 bg-white/90 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/90">
         <div className="mx-auto w-full max-w-lg px-3 py-2.5">
-          <div className="flex items-start gap-2.5">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900">
-              <BusFront className="h-5 w-5" aria-hidden="true" />
-            </span>
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              onClick={handleBack}
+              aria-label="返回上一頁"
+              title="返回"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 active:scale-95 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              返回
+            </button>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span className="text-lg font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
@@ -537,15 +572,6 @@ export default function RouteSequence() {
                 </span>
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleClose}
-              aria-label="關閉視窗"
-              title="關閉視窗"
-              className="shrink-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -590,18 +616,6 @@ export default function RouteSequence() {
         </div>
       )}
 
-      {closeFailed && (
-        <div className="mx-auto w-full max-w-lg shrink-0 px-3 pt-2">
-          <p className="rounded-xl bg-slate-100 px-2.5 py-2 text-[11px] leading-relaxed text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            瀏覽器不允許此視窗自動關閉（非由應用程式開啟）。你可以直接關閉分頁，或
-            <a href={HOME_URL} className="ml-1 font-semibold text-sky-600 underline dark:text-sky-400">
-              返回主頁
-            </a>
-            。
-          </p>
-        </div>
-      )}
-
       <main className="mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col gap-2 px-3 py-2.5">
         {stopsStatus === 'loading' && (
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -641,55 +655,86 @@ export default function RouteSequence() {
             >
               {stops.map((stop) => {
                 const isActive = activeStopId === stop.id
+                const isFavorite = favoriteKeys.has(favoriteKey(stop))
                 const panelId = `stop-eta-${String(stop.id).replace(/[^A-Za-z0-9_-]+/g, '-')}`
                 return (
                   <li key={`${stop.id}-${stop.seq}`} ref={isActive ? sourceRef : null}>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStop(stop)}
-                      aria-expanded={isActive}
-                      aria-controls={panelId}
-                      className={`flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition ${
+                    <div
+                      className={`flex items-center gap-0.5 rounded-xl pr-1 transition ${
                         isActive
                           ? 'bg-sky-50 ring-1 ring-inset ring-sky-200 dark:bg-sky-500/10 dark:ring-sky-500/30'
                           : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'
                       }`}
                     >
-                      <span
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${
-                          isActive
-                            ? 'bg-sky-600 text-white dark:bg-sky-500'
-                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStop(stop)}
+                        aria-expanded={isActive}
+                        aria-controls={panelId}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-2 pl-2 pr-0.5 text-left"
                       >
-                        {stop.seq}
-                      </span>
-                      <span className="min-w-0 flex-1">
                         <span
-                          className={`block truncate text-sm ${
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${
                             isActive
-                              ? 'font-semibold text-sky-900 dark:text-sky-100'
-                              : 'text-slate-700 dark:text-slate-200'
+                              ? 'bg-sky-600 text-white dark:bg-sky-500'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
                           }`}
                         >
-                          {stop.nameTc || stop.nameEn || stop.id}
+                          {stop.seq}
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-                          {isActive ? '最近三班車' : '查看最近三班車'}
-                          {isActive && (
-                            <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
-                              本站
-                            </span>
-                          )}
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={`block truncate text-sm ${
+                              isActive
+                                ? 'font-semibold text-sky-900 dark:text-sky-100'
+                                : 'text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
+                            {stop.nameTc || stop.nameEn || stop.id}
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+                            {isActive ? '最近三班車' : '查看最近三班車'}
+                            {isActive && (
+                              <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
+                                本站
+                              </span>
+                            )}
+                          </span>
                         </span>
-                      </span>
-                      <ChevronDown
-                        className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-                          isActive ? 'rotate-180 text-sky-500' : ''
-                        }`}
-                        aria-hidden="true"
-                      />
-                    </button>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleFavorite(stop)}
+                        aria-label={isFavorite ? '取消收藏此站' : '收藏此站'}
+                        aria-pressed={isFavorite}
+                        title={isFavorite ? '取消收藏此站' : '收藏此站'}
+                        className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/70 hover:text-amber-500 dark:text-slate-500 dark:hover:bg-slate-700/60"
+                      >
+                        <Star
+                          className={`h-4 w-4 ${
+                            isFavorite ? 'fill-amber-400 text-amber-400' : ''
+                          }`}
+                          aria-hidden="true"
+                        />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStop(stop)}
+                        aria-label={isActive ? '收合此站到站時間' : '展開此站到站時間'}
+                        aria-expanded={isActive}
+                        aria-controls={panelId}
+                        className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/70 hover:text-sky-600 dark:hover:bg-slate-700/60"
+                      >
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform ${
+                            isActive ? 'rotate-180 text-sky-500' : ''
+                          }`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </div>
 
                     {isActive && (
                       <StopEtaPanel

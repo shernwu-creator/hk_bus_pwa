@@ -683,19 +683,50 @@ export async function getKmbStopEtas(stopId, siblingIds = []) {
 }
 
 /**
- * 城巴：必須逐條路線查詢，因此需要「該站點經過的路線」清單
- * （來源：public/data/citybus-stops.json，或搜尋頁已知的路線）
+ * 城巴 ETA
+ * ------------------------------------------------------------------
+ * 主要走 OGCIO 的批次端點：一次取得「該站所有路線」的到站時間，
+ * 不需要站點的路線索引，請求數也從最多 8 次降為 1 次。
+ *
+ * 備援走官方 v2 逐路線端點，注意路徑順序是 `eta/CTB/{stopId}/{route}`：
+ * 若寫成 `eta/CTB/{route}/{stopId}` 官方仍會回 200，但 `data` 永遠是空陣列
+ * （過去城巴「有站點但沒有到站時間」就是這個原因）。
  */
-export async function getCitybusStopEtas(stopId, routes = []) {
-  const routeCodes = [...new Set(routes.map((route) => normalize(route)).filter(Boolean))].slice(0, 8)
-  if (routeCodes.length === 0) {
-    throw new ApiError('此城巴站點缺少路線資料，請重新同步站點資料')
+
+/** 批次 ETA 端點（OGCIO「Bus Route List and ETA of a Specific Bus Stop」） */
+const CTB_BATCH_ETA = 'https://rt.data.gov.hk/v1/transport/batch/stop-eta'
+
+/** 批次回應的 `dest`／`rmk` 對齊 v2 逐路線回應的 `dest_tc`／`rmk_tc` */
+function normalizeCitybusBatchRow(row) {
+  return {
+    ...row,
+    dest_tc: row.dest_tc ?? row.dest ?? '',
+    dest_en: row.dest_en ?? '',
+    rmk_tc: row.rmk_tc ?? row.rmk ?? '',
   }
+}
+
+export async function getCitybusStopEtas(stopId, routes = []) {
+  if (!stopId) return []
+
+  // 1) 批次端點：一次拿齊該站所有路線的 ETA（含靜態索引未收錄的新路線）
+  try {
+    const json = await fetchJson(
+      `${CTB_BATCH_ETA}/CTB/${encodeURIComponent(stopId)}?lang=zh-hant`,
+    )
+    return groupEtaRows('CTB', (json.data ?? []).map(normalizeCitybusBatchRow))
+  } catch (error) {
+    console.warn(`[api] 城巴批次 ETA（站點 ${stopId}）失敗，改用逐路線查詢：${error.message}`)
+  }
+
+  // 2) 備援：逐路線查詢（只有批次端點連線失敗時才會走到這裡）
+  const routeCodes = [...new Set(routes.map((route) => normalize(route)).filter(Boolean))].slice(0, 8)
+  if (routeCodes.length === 0) return []
 
   const results = await mapWithConcurrency(routeCodes, CTB_ETA_CONCURRENCY, async (route) => {
     try {
       const json = await fetchJson(
-        `${CTB_BASE}/eta/CTB/${encodeURIComponent(route)}/${encodeURIComponent(stopId)}`,
+        `${CTB_BASE}/eta/CTB/${encodeURIComponent(stopId)}/${encodeURIComponent(route)}`,
       )
       return json.data ?? []
     } catch (error) {

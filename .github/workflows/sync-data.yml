@@ -35,15 +35,15 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 只加入 src/data 裡面的變動
-          git add src/data/
+          # 站點索引（public/data）與票價表（src/data）都要一併提交
+          git add src/data/ public/data/
           
           # 檢查暫存區是否有變動，若有才執行 commit 與 push
           if git diff --staged --quiet; then
             echo "🚌 巴士站點與票價資料無變動，無需 Commit。"
           else
-            # 加入 [skip ci] 標籤，避免這次推播又觸發其他自動部署 (若未來有設定的話)
-            git commit -m "chore(data): 自動同步最新巴士站點與票價 [skip ci]"
+            # 不要加 [skip ci]：資料更新也要觸發 Pages 部署，網站才會用到新的站點索引
+            git commit -m "chore(data): 自動同步最新巴士站點與票價"
             git push
             echo "✅ 資料更新已成功 Push 至倉庫！"
           fi

@@ -86,6 +86,20 @@ export default function Nearby() {
 
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
 
+  // 附近站點排序：小巴一律排最後；同組內已收藏站點優先（即使距離較遠），其餘依距離。
+  // 收藏狀態改變時會即時重排。
+  const orderedStops = useMemo(() => {
+    const isGmb = (stop) => stop.operator === 'GMB'
+    return [...stops].sort((a, b) => {
+      const gmbDiff = Number(isGmb(a)) - Number(isGmb(b))
+      if (gmbDiff !== 0) return gmbDiff
+      const favoriteDiff =
+        Number(favoriteKeys.has(favoriteKey(b))) - Number(favoriteKeys.has(favoriteKey(a)))
+      if (favoriteDiff !== 0) return favoriteDiff
+      return (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY)
+    })
+  }, [stops, favoriteKeys])
+
   const reloadAll = useCallback(() => {
     setReloadToken((token) => token + 1)
     refresh()
@@ -189,7 +203,7 @@ export default function Nearby() {
 
       {status === 'ready' && stops.length > 0 && (
         <div className="space-y-2">
-          {stops.map((stop) => {
+          {orderedStops.map((stop) => {
             const key = favoriteKey(stop)
             const isExpanded = key === expandedKey
             const group = isExpanded
