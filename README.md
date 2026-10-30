@@ -59,6 +59,10 @@ GitHub Actions 的 [`sync-data.yml`](./.github/workflows/sync-data.yml) 會每�
 2. `src/App.jsx` 的 `<BrowserRouter basename={import.meta.env.BASE_URL}>`；
 3. `vite.config.js` manifest 的 `start_url` / `scope`（安裝成 App 後從正確路徑啟動）。
 
+> manifest 的 `id`（PWA 專屬身分，`APP_ID = '/hk-bus-eta/'`）**刻意不跟隨 `base`**：
+> 它只是「這個 App 的識別字串」，不指向實際資源；固定住才能讓本專案與其他 PWA
+> 同時安裝在同一部裝置，且日後改網域時仍被視為同一個 App 的升級。
+
 改用自己的網域（或部署到 `<user>.github.io` 根目錄）時，只要在 CI 設定 `VITE_BASE_PATH=/`，其餘設定會自動跟隨。
 
 ---
@@ -174,7 +178,7 @@ scripts/
 | 資料 | 來源 | 快取 |
 | --- | --- | --- |
 | 九巴全部站點 | 官方 API | 記憶體 → localStorage（`hkb:cache:kmb-stops`，12 小時） |
-| 城巴／小巴站點索引 | `public/data/*.json` | 記憶體 → IndexedDB（6 小時）＋ SW `static-data` |
+| 城巴／小巴站點索引 | `public/data/*.json` | 記憶體 → IndexedDB（`hkb-static`，6 小時）＋ SW `hkbus-static-data` |
 | 路線索引（KMB/CTB 官方 + 小巴靜態） | API + `gmb-routes.json` | 記憶體 → localStorage（`hkb:cache:route-index-v2`，12 小時） |
 | 票價 | `src/data/fares.json` | 打包進 bundle |
 | ETA | 官方 API | 不快取，每 30 秒輪詢（切到背景暫停） |
@@ -238,10 +242,16 @@ scripts/
 ## 7. PWA 設定
 
 - `vite.config.js`：`registerType: 'autoUpdate'`、`injectRegister: null`（由 `src/main.jsx` 手動註冊，每小時檢查更新）。
-- Manifest：`start_url` / `scope` / `id` 皆為建置 base（`/hk_bus_pwa/`），安裝後從正確路徑啟動。
-- 執行期快取：
-  - `data.etabus.gov.hk`（九巴）、`rt.data.gov.hk`（城巴）、`data.etagmb.gov.hk`（小巴）→ `NetworkFirst`（8 秒逾時），斷網時仍能看到最後一次資料；
-  - 自家 `/data/*.json` 索引 → `StaleWhileRevalidate`。
+- **PWA 專屬 ID**：manifest `id` 固定為 `APP_ID = '/hk-bus-eta/'`（`vite.config.js`），**刻意不跟隨 `base`**。
+  瀏覽器判斷「是否同一個 App」只看 `id`，所以同一 origin（如 `shernwu-creator.github.io`）下的多個 PWA 專案
+  各有自己的 `id`，即使本站改用自訂網域或部署到根目錄（`VITE_BASE_PATH=/`）也不會撞身分，
+  **多個 PWA 可以同時安裝在同一部裝置**；`id` 不變時 SW 更新也會視為同一 App 的升級。
+  ⚠️ 發佈後不要修改 `APP_ID`，否則使用者會被要求重新安裝（舊圖示不會自動更新）。
+- Manifest：`start_url` / `scope` 為建置 base（`/hk_bus_pwa/`）、`id` 為上述固定值，安裝後從正確路徑啟動。
+- 執行期快取（`CacheStorage` 以 origin 為單位共用，故全部加上 `hkbus-` 專屬前綴，避免與同 origin 的其他 PWA 專案互相覆蓋）：
+  - `data.etabus.gov.hk`（九巴）、`rt.data.gov.hk`（城巴）、`data.etagmb.gov.hk`（小巴）→ `NetworkFirst`（8 秒逾時），
+    快取名稱 `hkbus-kmb-api` / `hkbus-citybus-api` / `hkbus-gmb-api`，斷網時仍能看到最後一次資料；
+  - 自家 `/data/*.json` 索引 → `StaleWhileRevalidate`，快取名稱 `hkbus-static-data`。
 - 圖示：`public/pwa-192x192.png`、`pwa-512x512.png`、`pwa-maskable-512x512.png`、`apple-touch-icon.png`，皆由 `npm run generate:icons` 產生。
 - 驗證方式：`npm run build && npm run preview`，開啟 `http://localhost:4173/hk_bus_pwa/`，在 DevTools → Application 檢查 Manifest 與 Service Worker；`dist/404.html` 應存在。
 
@@ -276,6 +286,7 @@ scripts/
 
 | 問題／需求 | 處理 |
 | --- | --- |
+| **多個 PWA 要能同時安裝在同一部裝置** | manifest `id` 改為固定值 `APP_ID = '/hk-bus-eta/'`（不再等於 `base`，避免改用自訂網域／根路徑部署時與同 origin 的其他 PWA 撞身分）；Workbox 執行期快取名稱加上 `hkbus-` 前綴（`CacheStorage` 以 origin 共用）；`index.html` 補 `application-name` meta。 |
 | **城巴有站點但沒有到站時間** | 根因：v2 逐路線 ETA 路徑順序寫反（`eta/CTB/{route}/{stopId}`），官方回 200 但 `data` 永遠是空陣列。已改為主要使用批次端點 `batch/stop-eta/CTB/{stopId}`（一次取全站所有路線），備援路徑修正為 `eta/CTB/{stopId}/{route}`。 |
 | **站序頁沒有返回方法（按 X 直接退出程式）** | 站序頁改為「返回」按鈕：優先用 `window.opener` 回到原本 App 分頁（同源自家頁面，保留原本站點展開狀態），否則 `history.back()`，最後回首頁；`openRouteSequence` 不再清除 opener。 |
 | **路線站序也要能收藏站點** | 站序每一列加星號收藏按鈕（`useFavorites`，與主 App 共用 localStorage／storage 事件同步）。 |

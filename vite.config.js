@@ -10,6 +10,24 @@ import { VitePWA } from 'vite-plugin-pwa'
  */
 const DEFAULT_BASE = '/hk_bus_pwa/'
 
+/**
+ * PWA 專屬 ID（manifest `id`）：瀏覽器判斷「是否為同一個 App」只看這個值，
+ * 不是 name、也不是 start_url。這裡刻意寫成「不跟隨 base」的固定路徑，原因：
+ *   1. 同一 origin（例如 shernwu-creator.github.io）下的其他 PWA 專案各有自己的 id，
+ *      即使本站改用自訂網域／部署到網站根目錄（VITE_BASE_PATH=/），也不會撞身分，
+ *      因此多個 PWA 可以同時安裝在同一部裝置；
+ *   2. Service Worker 更新時 id 不變，安裝的 App 才會被視為「同一個 App 的升級」。
+ * ⚠️ 一旦發佈就不要改：改了會被視為另一個 App，使用者需要重新安裝。
+ */
+const APP_ID = '/hk-bus-eta/'
+
+/**
+ * CacheStorage 與 IndexedDB 都是以「origin」為單位共用，GitHub Pages 上同一個帳號的
+ * 所有專案共用同一個 origin，因此快取名稱一律加上本專案專屬前綴，
+ * 避免和其他 PWA 專案的 `static-data`、`assets` 之類通用名稱互相覆蓋。
+ */
+const CACHE_PREFIX = 'hkbus-'
+
 function withTrailingSlash(value) {
   if (!value) return '/'
   return value.endsWith('/') ? value : `${value}/`
@@ -61,7 +79,8 @@ export default defineConfig(({ command, isPreview }) => {
             '以 GPS 定位查詢 500 公尺內九巴 (KMB)、城巴 (CTB) 與專線小巴 (GMB) 站點的路線、上車收費與最近三班車到站時間。',
           lang: 'zh-HK',
           dir: 'ltr',
-          id: base,
+          // 專屬安裝身分（固定值，不隨 base 變動）：可與其他 PWA 專案並存在同一部裝置
+          id: APP_ID,
           start_url: base,
           scope: base,
           display: 'standalone',
@@ -86,7 +105,7 @@ export default defineConfig(({ command, isPreview }) => {
               urlPattern: ({ url }) => url.hostname === 'data.etabus.gov.hk',
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'kmb-api',
+                cacheName: `${CACHE_PREFIX}kmb-api`,
                 networkTimeoutSeconds: 8,
                 expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },
@@ -97,7 +116,7 @@ export default defineConfig(({ command, isPreview }) => {
               urlPattern: ({ url }) => url.hostname === 'rt.data.gov.hk',
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'citybus-api',
+                cacheName: `${CACHE_PREFIX}citybus-api`,
                 networkTimeoutSeconds: 8,
                 expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },
@@ -108,7 +127,7 @@ export default defineConfig(({ command, isPreview }) => {
               urlPattern: ({ url }) => url.hostname === 'data.etagmb.gov.hk',
               handler: 'NetworkFirst',
               options: {
-                cacheName: 'gmb-api',
+                cacheName: `${CACHE_PREFIX}gmb-api`,
                 networkTimeoutSeconds: 8,
                 expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },
@@ -119,7 +138,7 @@ export default defineConfig(({ command, isPreview }) => {
               urlPattern: ({ url }) => url.origin === self.location.origin && url.pathname.includes('/data/'),
               handler: 'StaleWhileRevalidate',
               options: {
-                cacheName: 'static-data',
+                cacheName: `${CACHE_PREFIX}static-data`,
                 expiration: { maxEntries: 12, maxAgeSeconds: 7 * 24 * 60 * 60 },
                 cacheableResponse: { statuses: [0, 200] },
               },
