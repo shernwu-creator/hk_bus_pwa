@@ -37,7 +37,8 @@ export default function Search() {
   const [stops, setStops] = useState([])
   const [stopsStatus, setStopsStatus] = useState('idle')
   const [stopsError, setStopsError] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
+  // 可同時展開多個站點，打開下面的站不會收起上面的
+  const [expandedIds, setExpandedIds] = useState(() => new Set())
 
   const keyword = query.trim().toUpperCase()
 
@@ -86,7 +87,7 @@ export default function Search() {
     setStopsStatus('loading')
     setStopsError(null)
     setStops([])
-    setExpandedId(null)
+    setExpandedIds(new Set())
 
     getRouteStops(selected)
       .then((list) => {
@@ -105,21 +106,35 @@ export default function Search() {
     }
   }, [selected])
 
-  const expandedStop = useMemo(
-    () => stops.find((stop) => stop.id === expandedId) ?? null,
-    [stops, expandedId],
+  // 展開中的站點（可同時多個）；帶完整站點物件，展開後站名才不會退回站點編號
+  const expandedStops = useMemo(
+    () => stops.filter((stop) => expandedIds.has(stop.id)),
+    [stops, expandedIds],
+  )
+  const etaRefs = useMemo(
+    () => (selected ? expandedStops.map((stop) => ({ ...stop })) : []),
+    [expandedStops, selected],
   )
 
-  // 帶完整站點物件，展開後站名才不會退回站點編號
-  const etaRefs = useMemo(() => (expandedStop && selected ? [{ ...expandedStop }] : []), [expandedStop, selected])
-
-  const { groups, loading: etaLoading } = useBusData(etaRefs, {
-    enabled: Boolean(expandedStop),
+  const { groups } = useBusData(etaRefs, {
+    enabled: etaRefs.length > 0,
     routeFilter: selected?.route ?? null,
   })
 
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
-  const etaGroup = groups[0] ?? null
+  const etaGroupsByKey = useMemo(
+    () => new Map(groups.map((group) => [favoriteKey(group.stop), group])),
+    [groups],
+  )
+
+  const toggleStop = useCallback((id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const retryStops = useCallback(() => {
     setSelected((prev) => (prev ? { ...prev } : prev))
@@ -132,10 +147,9 @@ export default function Search() {
         stops={stops}
         status={stopsStatus}
         error={stopsError}
-        etaGroup={etaGroup}
-        expandedId={expandedId}
-        etaLoading={etaLoading}
-        onToggleStop={setExpandedId}
+        etaGroupsByKey={etaGroupsByKey}
+        expandedIds={expandedIds}
+        onToggleStop={toggleStop}
         onBack={() => setSelected(null)}
         isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
         onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
@@ -202,7 +216,7 @@ export default function Search() {
                   className="card flex w-full items-center gap-2.5 p-2.5 text-left transition hover:border-slate-300 dark:hover:border-slate-700"
                 >
                   <span className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-slate-100/80 px-1 py-1.5 dark:bg-slate-800/80">
-                    <span className="text-base font-extrabold leading-none text-slate-900 dark:text-white">
+                    <span className="whitespace-nowrap text-lg font-extrabold leading-none text-slate-900 dark:text-white">
                       {row.route}
                     </span>
                     <OperatorBadge operator={row.operator} className="mt-1" />

@@ -23,7 +23,7 @@ export default function BusCard({ entry, onClick }) {
     <>
       <span className="flex items-start gap-2.5">
         <span className="flex w-16 shrink-0 flex-col items-center rounded-xl bg-slate-100/80 px-1 py-1.5 dark:bg-slate-800/80">
-          <span className="text-lg font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
+          <span className="whitespace-nowrap text-xl font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
             {route}
           </span>
           <OperatorBadge operator={operator} className="mt-1" />

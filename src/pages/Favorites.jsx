@@ -12,26 +12,33 @@ import { formatDateTime } from '../utils/format.js'
  */
 export default function Favorites() {
   const { favorites, toggleFavorite, clearFavorites } = useFavorites()
-  const [expandedKey, setExpandedKey] = useState(null)
+  // 可同時展開多個收藏站點
+  const [expandedKeys, setExpandedKeys] = useState(() => new Set())
 
-  const expandedFavorite = useMemo(
-    () => favorites.find((item) => favoriteKey(item) === expandedKey) ?? null,
-    [favorites, expandedKey],
+  const expandedFavorites = useMemo(
+    () => favorites.filter((item) => expandedKeys.has(favoriteKey(item))),
+    [favorites, expandedKeys],
   )
 
-  const etaRefs = useMemo(() => (expandedFavorite ? [{ ...expandedFavorite }] : []), [expandedFavorite])
+  const etaRefs = useMemo(
+    () => expandedFavorites.map((item) => ({ ...item })),
+    [expandedFavorites],
+  )
 
-  const { groups, loading: etaLoading, error: etaError, refresh } = useBusData(etaRefs, {
-    enabled: Boolean(expandedFavorite),
+  const { groups, error: etaError, refresh } = useBusData(etaRefs, {
+    enabled: etaRefs.length > 0,
   })
 
-  const etaGroup = groups[0] ?? null
+  const groupsByKey = useMemo(
+    () => new Map(groups.map((group) => [favoriteKey(group.stop), group])),
+    [groups],
+  )
 
   const handleClear = () => {
     if (!favorites.length) return
     if (window.confirm('確定要清除全部收藏站點嗎？')) {
       clearFavorites()
-      setExpandedKey(null)
+      setExpandedKeys(new Set())
     }
   }
 
@@ -82,23 +89,35 @@ export default function Favorites() {
         <div className="space-y-2">
           {favorites.map((favorite) => {
             const key = favoriteKey(favorite)
-            const isExpanded = key === expandedKey
-            const group = isExpanded
-              ? (etaGroup ?? { stop: favorite, routes: [], error: null })
-              : { stop: favorite, routes: [], error: null }
+            const isExpanded = expandedKeys.has(key)
+            const group = groupsByKey.get(key) ?? { stop: favorite, routes: [], error: null }
+            const isLoading = isExpanded && !groupsByKey.has(key)
 
             return (
               <StopSection
                 key={key}
                 group={group}
                 expanded={isExpanded}
-                onToggle={() => setExpandedKey((prev) => (prev === key ? null : key))}
+                onToggle={() =>
+                  setExpandedKeys((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(key)) next.delete(key)
+                    else next.add(key)
+                    return next
+                  })
+                }
                 isFavorite
                 onToggleFavorite={() => {
                   toggleFavorite(favorite)
-                  if (isExpanded) setExpandedKey(null)
+                  if (isExpanded) {
+                    setExpandedKeys((prev) => {
+                      const next = new Set(prev)
+                      next.delete(key)
+                      return next
+                    })
+                  }
                 }}
-                loading={isExpanded && etaLoading}
+                loading={isLoading}
                 onRetry={refresh}
               />
             )

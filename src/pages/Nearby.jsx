@@ -34,7 +34,8 @@ export default function Nearby() {
   const [stops, setStops] = useState([])
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState(null)
-  const [expandedKey, setExpandedKey] = useState(null)
+  // 可同時展開多個站點（打開下面站點時不會收起上面已打開的）
+  const [expandedKeys, setExpandedKeys] = useState(() => new Set())
   const [reloadToken, setReloadToken] = useState(0)
 
   const lat = coords?.lat
@@ -52,7 +53,8 @@ export default function Nearby() {
         if (cancelled) return
         setStops(list)
         setStatus('ready')
-        setExpandedKey(list.length > 0 ? favoriteKey(list[0]) : null)
+        // 預設展開最近（排序前）的站點
+        setExpandedKeys(new Set(list.length > 0 ? [favoriteKey(list[0])] : []))
       })
       .catch((err) => {
         if (cancelled) return
@@ -66,23 +68,27 @@ export default function Nearby() {
     }
   }, [lat, lng, radius, reloadToken])
 
-  const expandedStop = useMemo(
-    () => stops.find((stop) => favoriteKey(stop) === expandedKey) ?? null,
-    [stops, expandedKey],
+  // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
+  // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。
+  const expandedStops = useMemo(
+    () => stops.filter((stop) => expandedKeys.has(favoriteKey(stop))),
+    [stops, expandedKeys],
   )
-
-  // 注意：refs 必須帶完整站點物件（站名等），否則展開後 StopSection 只能拿到站點編號，
-  // 標題會從中文站名變成「5B1C2D3E」這種代碼。
-  const etaRefs = useMemo(() => (expandedStop ? [{ ...expandedStop }] : []), [expandedStop])
+  const etaRefs = useMemo(() => expandedStops.map((stop) => ({ ...stop })), [expandedStops])
 
   const {
     groups,
-    loading: etaLoading,
     refreshing,
     error: etaError,
     updatedAt: etaUpdatedAt,
     refresh,
-  } = useBusData(etaRefs, { enabled: Boolean(expandedStop) })
+  } = useBusData(etaRefs, { enabled: etaRefs.length > 0 })
+
+  // 以站點 key 對應各自的 ETA；仍然載入中的站點沒有 group 就顯示 skeleton
+  const groupsByKey = useMemo(
+    () => new Map(groups.map((group) => [favoriteKey(group.stop), group])),
+    [groups],
+  )
 
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
 
@@ -106,7 +112,6 @@ export default function Nearby() {
   }, [refresh])
 
   const isLocating = locationStatus === 'locating'
-  const etaGroup = groups[0] ?? null
 
   return (
     <div className="space-y-3">
@@ -205,10 +210,10 @@ export default function Nearby() {
         <div className="space-y-2">
           {orderedStops.map((stop) => {
             const key = favoriteKey(stop)
-            const isExpanded = key === expandedKey
-            const group = isExpanded
-              ? (etaGroup ?? { stop, routes: [], error: null })
-              : { stop, routes: [], error: null }
+            const isExpanded = expandedKeys.has(key)
+            const group = groupsByKey.get(key) ?? { stop, routes: [], error: null }
+            // 已展開但 ETA 尚未回來 → 顯示骨架；回來後即使沒有班次也顯示空狀態
+            const isLoading = isExpanded && !groupsByKey.has(key)
 
             return (
               <StopSection
@@ -216,10 +221,17 @@ export default function Nearby() {
                 group={group}
                 distance={stop.distance}
                 expanded={isExpanded}
-                onToggle={() => setExpandedKey((prev) => (prev === key ? null : key))}
+                onToggle={() =>
+                  setExpandedKeys((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(key)) next.delete(key)
+                    else next.add(key)
+                    return next
+                  })
+                }
                 isFavorite={favoriteKeys.has(key)}
                 onToggleFavorite={toggleFavorite}
-                loading={isExpanded && etaLoading}
+                loading={isLoading}
                 onRetry={refresh}
               />
             )

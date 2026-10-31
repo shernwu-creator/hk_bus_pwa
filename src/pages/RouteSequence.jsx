@@ -315,8 +315,18 @@ export default function RouteSequence() {
   const [reverseError, setReverseError] = useState(null)
   const { favorites, toggleFavorite } = useFavorites()
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
+  // 展開狀態改由元件 state 管理，可同時展開多站；URL 的 stop 只作為「來源站」
+  // （高亮＋本站 chip＋分享用）與重新載入時的初始展開依據，不再限制同時展開的站數。
+  const [expandedStopIds, setExpandedStopIds] = useState(() => new Set())
   const listRef = useRef(null)
   const sourceRef = useRef(null)
+
+  // 站序載入完成時要用「當下」的 URL 參數找回來源站；以 ref 保存可避免把 stop／name
+  // 變成站序請求的依賴（否則每次點站點更新 URL 都會重新抓一次全線站序）。
+  const urlParamsRef = useRef({ nameParam: '', highlightedIds: new Set() })
+  useEffect(() => {
+    urlParamsRef.current = { nameParam, highlightedIds }
+  }, [nameParam, highlightedIds])
 
   // 取得全線站序；小巴缺少 routeId/routeSeq 時直接顯示可理解的錯誤
   useEffect(() => {
@@ -341,9 +351,17 @@ export default function RouteSequence() {
         if (cancelled) return
         setStops(list)
         setStopsStatus('ready')
+
+        // 反轉方向／重新載入站序時，把展開狀態重設為新方向找回的來源站（找不到就空 Set）
+        const { nameParam: currentName, highlightedIds: currentHighlightedIds } = urlParamsRef.current
+        const matchedStop =
+          list.find((stop) => currentHighlightedIds.has(stop.id)) ??
+          findMatchingStop(list, { name: currentName })
+        setExpandedStopIds(new Set(matchedStop ? [matchedStop.id] : []))
       } catch (error) {
         if (cancelled) return
         setStops([])
+        setExpandedStopIds(new Set())
         setStopsStatus('error')
         setStopsError(error?.message ?? '無法取得站序資料')
       }
@@ -356,22 +374,23 @@ export default function RouteSequence() {
     }
   }, [operator, route, directionValue, serviceType, routeId, routeSeq, stopsReloadToken, isGmbMissingMeta])
 
-  // 來源站：先比對 stop／siblings 的站點 ID；反轉方向後改以站名（正規化）找回同一站
+  // 來源站：以 URL 的 stop／siblings 比對站點 ID，反轉方向後改以正規化站名／座標找回。
+  // 「本站」chip 與 sky 高亮只標示這一站；其他已展開的站不會被搶走高亮。
   const activeStop = useMemo(() => {
     if (stops.length === 0) return null
     const byId = stops.find((stop) => highlightedIds.has(stop.id))
     if (byId) return byId
-    // 反轉方向後站點 ID 不同：用正規化站名／座標在反向站序找回同一站
     return findMatchingStop(stops, { name: nameParam })
   }, [stops, highlightedIds, nameParam])
 
-  // 目前展開的站點除了自己的 ID，還要帶上同站其他月台的 ID，九巴合併月台才查得準
+  const activeStopId = activeStop?.id ?? null
+
+  // 來源站若由多個月台合併（siblings），展開它的 ETA 時要帶上其他月台 ID，
+  // 九巴合併月台才查得準；其他點開的站只知道自己的 ID。
   const activeSiblingIds = useMemo(() => {
     if (!activeStop) return []
     return [...highlightedIds].filter((id) => id && id !== activeStop.id)
   }, [activeStop, highlightedIds])
-
-  const activeStopId = activeStop?.id ?? null
 
   // 站序載入後把來源站捲到清單中央（只改 scrollTop，避免 scrollIntoView 讓整頁跳動）
   const stopsSignature = `${stops.length}|${stops[0]?.id ?? ''}|${stops[stops.length - 1]?.id ?? ''}`
@@ -397,22 +416,37 @@ export default function RouteSequence() {
 
   const retryStops = useCallback(() => setStopsReloadToken((token) => token + 1), [])
 
-  // 點站點列：展開（寫回 URL）／再點同一站收合
+  // 點站點列：切換該站的展開狀態（可同時展開多站）。
+  // URL 的 stop／name 仍會 replace 更新（分享／重新整理用），但不影響目前已展開的站。
   const handleToggleStop = useCallback(
     (stop) => {
+      const isExpanded = expandedStopIds.has(stop.id)
+      setExpandedStopIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(stop.id)) next.delete(stop.id)
+        else next.add(stop.id)
+        return next
+      })
+
       const next = new URLSearchParams(searchParams)
-      if (activeStopId === stop.id) {
+      if (!isExpanded) {
+        // 展開：URL 記錄最後打開的站，方便分享給朋友直接看到這一站
+        next.set('stop', stop.id)
+        next.set('name', stop.nameTc || stop.nameEn || stop.id)
+        next.delete('siblings')
+      } else if ((searchParams.get('stop') ?? '') === stop.id) {
+        // 收合的是 URL 指向的站：清掉 URL 的 stop／name（重新整理時不會再展開）
         next.delete('stop')
         next.delete('name')
         next.delete('siblings')
       } else {
-        next.set('stop', stop.id)
-        next.set('name', stop.nameTc || stop.nameEn || stop.id)
-        next.delete('siblings')
+        // 收合的不是 URL 指向的站：URL 不用變
+        return
       }
+
       navigate({ search: next.toString() ? `?${next.toString()}` : '' }, { replace: true })
     },
-    [activeStopId, navigate, searchParams],
+    [expandedStopIds, navigate, searchParams],
   )
 
   // 反轉方向：以路線索引找出另一方向，更新 URL（replace），沿用站名讓新方向自動展開同一站
@@ -552,7 +586,7 @@ export default function RouteSequence() {
             </button>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-1.5">
-                <span className="text-lg font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
+                <span className="text-xl font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
                   {route || '路線站序'}
                 </span>
                 <OperatorBadge operator={operator} />
@@ -645,7 +679,7 @@ export default function RouteSequence() {
                 <MapPin className="h-3 w-3" aria-hidden="true" />
                 全線站序 · {stops.length} 站
               </span>
-              <span>點擊站點查看最近三班車</span>
+              <span>點擊站點可同時展開多站</span>
             </div>
 
             <ol
@@ -654,28 +688,31 @@ export default function RouteSequence() {
               className="card relative min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5"
             >
               {stops.map((stop) => {
-                const isActive = activeStopId === stop.id
+                const isExpanded = expandedStopIds.has(stop.id)
+                const isSource = activeStopId === stop.id
                 const isFavorite = favoriteKeys.has(favoriteKey(stop))
                 const panelId = `stop-eta-${String(stop.id).replace(/[^A-Za-z0-9_-]+/g, '-')}`
                 return (
-                  <li key={`${stop.id}-${stop.seq}`} ref={isActive ? sourceRef : null}>
+                  <li key={`${stop.id}-${stop.seq}`} ref={isSource ? sourceRef : null}>
                     <div
                       className={`flex items-center gap-0.5 rounded-xl pr-1 transition ${
-                        isActive
+                        isExpanded
                           ? 'bg-sky-50 ring-1 ring-inset ring-sky-200 dark:bg-sky-500/10 dark:ring-sky-500/30'
-                          : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                          : isSource
+                            ? 'bg-sky-50/60 ring-1 ring-inset ring-sky-100 dark:bg-sky-500/5 dark:ring-sky-500/20'
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-800/60'
                       }`}
                     >
                       <button
                         type="button"
                         onClick={() => handleToggleStop(stop)}
-                        aria-expanded={isActive}
+                        aria-expanded={isExpanded}
                         aria-controls={panelId}
                         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-2 pl-2 pr-0.5 text-left"
                       >
                         <span
                           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${
-                            isActive
+                            isExpanded || isSource
                               ? 'bg-sky-600 text-white dark:bg-sky-500'
                               : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
                           }`}
@@ -684,8 +721,8 @@ export default function RouteSequence() {
                         </span>
                         <span className="min-w-0 flex-1">
                           <span
-                            className={`block truncate text-sm ${
-                              isActive
+                            className={`block truncate text-lg ${
+                              isExpanded
                                 ? 'font-semibold text-sky-900 dark:text-sky-100'
                                 : 'text-slate-700 dark:text-slate-200'
                             }`}
@@ -693,8 +730,8 @@ export default function RouteSequence() {
                             {stop.nameTc || stop.nameEn || stop.id}
                           </span>
                           <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-                            {isActive ? '最近三班車' : '查看最近三班車'}
-                            {isActive && (
+                            {isExpanded ? '最近三班車' : '查看最近三班車'}
+                            {isSource && (
                               <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
                                 本站
                               </span>
@@ -722,28 +759,28 @@ export default function RouteSequence() {
                       <button
                         type="button"
                         onClick={() => handleToggleStop(stop)}
-                        aria-label={isActive ? '收合此站到站時間' : '展開此站到站時間'}
-                        aria-expanded={isActive}
+                        aria-label={isExpanded ? '收合此站到站時間' : '展開此站到站時間'}
+                        aria-expanded={isExpanded}
                         aria-controls={panelId}
                         className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/70 hover:text-sky-600 dark:hover:bg-slate-700/60"
                       >
                         <ChevronDown
                           className={`h-4 w-4 transition-transform ${
-                            isActive ? 'rotate-180 text-sky-500' : ''
+                            isExpanded ? 'rotate-180 text-sky-500' : ''
                           }`}
                           aria-hidden="true"
                         />
                       </button>
                     </div>
 
-                    {isActive && (
+                    {isExpanded && (
                       <StopEtaPanel
                         key={`${stop.operator}:${stop.id}`}
                         id={panelId}
                         stop={stop}
                         route={route}
                         direction={directionValue}
-                        siblingIds={activeSiblingIds}
+                        siblingIds={isSource ? activeSiblingIds : []}
                       />
                     )}
                   </li>

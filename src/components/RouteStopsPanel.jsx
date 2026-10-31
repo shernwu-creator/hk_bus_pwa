@@ -2,6 +2,7 @@ import { ArrowLeft, Route as RouteIcon } from 'lucide-react'
 import OperatorBadge from './OperatorBadge.jsx'
 import StopSection from './StopSection.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from './StateViews.jsx'
+import { favoriteKey } from '../hooks/useFavorites.js'
 
 /**
  * 路線站序面板：顯示選定路線（含方向）的站點，可展開查看該站的實時到站時間
@@ -11,10 +12,9 @@ import { EmptyState, ErrorState, StopSkeleton } from './StateViews.jsx'
  * @param {Array} props.stops
  * @param {'idle'|'loading'|'ready'|'error'} props.status
  * @param {string|null} props.error
- * @param {{stop:object, routes:Array, error:string|null}|null} props.etaGroup
- * @param {string|null} props.expandedId
- * @param {boolean} props.etaLoading
- * @param {(id:string|null) => void} props.onToggleStop
+ * @param {Map<string, {stop:object, routes:Array, error:string|null}>} props.etaGroupsByKey 以 favoriteKey(stop) 對應各站 ETA
+ * @param {Set<string>} props.expandedIds 目前展開的站點 id（可同時多個）
+ * @param {(id:string) => void} props.onToggleStop
  * @param {() => void} props.onBack
  * @param {(stop:object) => boolean} props.isFavorite
  * @param {(stop:object) => void} props.onToggleFavorite
@@ -25,9 +25,8 @@ export default function RouteStopsPanel({
   stops,
   status,
   error,
-  etaGroup,
-  expandedId,
-  etaLoading,
+  etaGroupsByKey,
+  expandedIds,
   onToggleStop,
   onBack,
   isFavorite,
@@ -47,7 +46,7 @@ export default function RouteStopsPanel({
         </button>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1.5">
-            <span className="text-base font-extrabold leading-none text-slate-900 dark:text-white">
+            <span className="text-lg font-extrabold leading-none text-slate-900 dark:text-white">
               {selected.route}
             </span>
             <OperatorBadge operator={selected.operator} />
@@ -76,10 +75,11 @@ export default function RouteStopsPanel({
       {status === 'ready' && stops.length > 0 && (
         <div className="space-y-2">
           {stops.map((stop) => {
-            const isExpanded = stop.id === expandedId
-            const group = isExpanded
-              ? (etaGroup ?? { stop, routes: [], error: null })
-              : { stop, routes: [], error: null }
+            const key = favoriteKey(stop)
+            const isExpanded = expandedIds.has(stop.id)
+            const group = etaGroupsByKey.get(key) ?? { stop, routes: [], error: null }
+            // 已展開但 ETA 未回來先顯示骨架
+            const isLoading = isExpanded && !etaGroupsByKey.has(key)
 
             return (
               <StopSection
@@ -87,10 +87,10 @@ export default function RouteStopsPanel({
                 group={group}
                 seq={stop.seq}
                 expanded={isExpanded}
-                onToggle={() => onToggleStop(isExpanded ? null : stop.id)}
+                onToggle={() => onToggleStop(stop.id)}
                 isFavorite={isFavorite(stop)}
                 onToggleFavorite={() => onToggleFavorite(stop)}
-                loading={isExpanded && etaLoading}
+                loading={isLoading}
                 onRetry={onRetry}
               />
             )
