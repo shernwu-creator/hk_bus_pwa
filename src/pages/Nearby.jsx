@@ -32,41 +32,48 @@ export default function Nearby() {
 
   const [radius, setRadius] = useState(DEFAULT_RADIUS)
   const [stops, setStops] = useState([])
-  const [status, setStatus] = useState('idle')
   const [error, setError] = useState(null)
+  // 已完成的請求識別（座標＋半徑＋更新次數）；loading 由「目前請求 vs 已完成請求」推導，
+  // 避免在 effect 內同步 setState（react/set-state-in-effect）。
+  const [loadedRequestKey, setLoadedRequestKey] = useState(null)
   // 可同時展開多個站點（打開下面站點時不會收起上面已打開的）
   const [expandedKeys, setExpandedKeys] = useState(() => new Set())
   const [reloadToken, setReloadToken] = useState(0)
 
   const lat = coords?.lat
   const lng = coords?.lng
+  const requestKey =
+    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat},${lng},${radius},${reloadToken}` : null
+  let status = 'idle'
+  if (requestKey !== null) {
+    status = loadedRequestKey === requestKey ? (error ? 'error' : 'ready') : 'loading'
+  }
 
   useEffect(() => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
+    if (requestKey === null) return undefined
 
     let cancelled = false
-    setStatus('loading')
-    setError(null)
 
     getNearbyStops({ lat, lng, radius, limit: 20 })
       .then((list) => {
         if (cancelled) return
         setStops(list)
-        setStatus('ready')
+        setError(null)
+        setLoadedRequestKey(requestKey)
         // 預設展開最近（排序前）的站點
         setExpandedKeys(new Set(list.length > 0 ? [favoriteKey(list[0])] : []))
       })
       .catch((err) => {
         if (cancelled) return
         setStops([])
-        setStatus('error')
         setError(err?.message ?? '無法取得附近站點')
+        setLoadedRequestKey(requestKey)
       })
 
     return () => {
       cancelled = true
     }
-  }, [lat, lng, radius, reloadToken])
+  }, [requestKey, lat, lng, radius])
 
   // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
   // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。

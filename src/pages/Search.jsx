@@ -35,12 +35,21 @@ export default function Search() {
   const [indexError, setIndexError] = useState(null)
   const [selected, setSelected] = useState(null)
   const [stops, setStops] = useState([])
-  const [stopsStatus, setStopsStatus] = useState('idle')
   const [stopsError, setStopsError] = useState(null)
+  // 已完成的站序請求（路線＋重試次數）；loading 由「目前請求 vs 已完成請求」推導，
+  // 避免在 effect 內同步 setState（react/set-state-in-effect）。
+  const [loadedStopsKey, setLoadedStopsKey] = useState(null)
+  const [stopsReloadToken, setStopsReloadToken] = useState(0)
   // 可同時展開多個站點，打開下面的站不會收起上面的
   const [expandedIds, setExpandedIds] = useState(() => new Set())
 
   const keyword = query.trim().toUpperCase()
+  const stopsRequestKey = selected ? `${routeKey(selected)}|${stopsReloadToken}` : null
+  let stopsStatus = 'idle'
+  if (stopsRequestKey !== null) {
+    stopsStatus =
+      loadedStopsKey === stopsRequestKey ? (stopsError ? 'error' : 'ready') : 'loading'
+  }
 
   const loadIndex = useCallback(() => {
     setIndexStatus('loading')
@@ -82,29 +91,28 @@ export default function Search() {
   }, [routeIndex, keyword])
 
   useEffect(() => {
-    if (!selected) return undefined
+    if (stopsRequestKey === null) return undefined
+
     let cancelled = false
-    setStopsStatus('loading')
-    setStopsError(null)
-    setStops([])
-    setExpandedIds(new Set())
 
     getRouteStops(selected)
       .then((list) => {
         if (cancelled) return
         setStops(list)
-        setStopsStatus('ready')
+        setStopsError(null)
+        setLoadedStopsKey(stopsRequestKey)
       })
       .catch((error) => {
         if (cancelled) return
-        setStopsStatus('error')
+        setStops([])
         setStopsError(error?.message ?? '無法取得站序資料')
+        setLoadedStopsKey(stopsRequestKey)
       })
 
     return () => {
       cancelled = true
     }
-  }, [selected])
+  }, [selected, stopsRequestKey])
 
   // 展開中的站點（可同時多個）；帶完整站點物件，展開後站名才不會退回站點編號
   const expandedStops = useMemo(
@@ -136,8 +144,18 @@ export default function Search() {
     })
   }, [])
 
+  // 選擇路線（事件處理器內重置站序狀態，讓面板立即回到 loading）
+  const chooseRoute = useCallback((row) => {
+    setSelected(row)
+    setStops([])
+    setStopsError(null)
+    setLoadedStopsKey(null)
+    setExpandedIds(new Set())
+  }, [])
+
   const retryStops = useCallback(() => {
-    setSelected((prev) => (prev ? { ...prev } : prev))
+    setExpandedIds(new Set())
+    setStopsReloadToken((token) => token + 1)
   }, [])
 
   if (selected) {
@@ -212,7 +230,7 @@ export default function Search() {
               <li key={routeKey(row)}>
                 <button
                   type="button"
-                  onClick={() => setSelected(row)}
+                  onClick={() => chooseRoute(row)}
                   className="card flex w-full items-center gap-2.5 p-2.5 text-left transition hover:border-slate-300 dark:hover:border-slate-700"
                 >
                   <span className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-slate-100/80 px-1 py-1.5 dark:bg-slate-800/80">
