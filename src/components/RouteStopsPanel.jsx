@@ -61,6 +61,11 @@ export default function RouteStopsPanel({
             </span>
             {status === 'ready' && <span className="shrink-0">· {stops.length} 站</span>}
           </p>
+          {selected.origEn && selected.destinationEn && (
+            <p className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
+              {selected.origEn} → {selected.destinationEn}
+            </p>
+          )}
         </div>
       </div>
 

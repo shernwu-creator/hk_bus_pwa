@@ -175,6 +175,7 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
         const entries = await getStopEtas({
           operator: stop.operator,
           id: stop.id,
+          seq: stop.seq,
           routes: [route],
           siblingIds: siblingParam ? siblingParam.split(',') : [],
         })
@@ -729,6 +730,11 @@ export default function RouteSequence() {
                           >
                             {stop.nameTc || stop.nameEn || stop.id}
                           </span>
+                          {stop.nameTc && stop.nameEn && (
+                            <span className="block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                              {stop.nameEn}
+                            </span>
+                          )}
                           <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                             {isExpanded ? '最近三班車' : '查看最近三班車'}
                             {isSource && (

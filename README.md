@@ -196,8 +196,9 @@ scripts/
 
 ### 6.3 ETA 合併
 
-- `groupEtaRows()`：把「一列一班車」整理成「一條路線一筆」，key 為 `路線|方向`（刻意不含 `service_type`，避免 5C 這種多服務類型重複顯示）。
-- `mergeEtaGroups()`：合併多個站牌的回應，同路線＋方向只留一筆，時間差 < 60 秒視為同一班車。
+- `groupEtaRows()`：把「一列一班車」整理成「一條路線一筆」，key 為 `路線|方向`（刻意不含 `service_type`，避免 5C 這種多服務類型重複顯示），收集該路線全部班次後交給 `normalizeEtaList()` 排序、去重、取最近三班。
+- `normalizeEtaList()`：依實際到站時間排序後去重——相鄰兩筆時間差 < 45 秒，或顯示的 `HH:mm` 與剩餘分鐘完全相同時只保留一筆；`getStopEtas(stop)` 有帶 `stop.seq` 時，重複班次優先保留 `stopSeq` 相符的那筆。
+- `mergeEtaGroups()`：合併多個站牌的回應，同路線＋方向只留一筆，再以 `normalizeEtaList()` 去重並取最近三班。
 - **城巴**：`getCitybusStopEtas()` 先打批次端點（一站一次拿全部路線，含索引未收錄的新路線），失敗才逐路線查詢備援；批次回應的 `dest`／`rmk` 會正規化成 `dest_tc`／`rmk_tc` 後併入 `groupEtaRows()`。
 - 小巴以 `route_id|route_seq` 對照路線號碼與方向（`route_seq` 1 = 去程、2 = 回程）。
 - 每個站點的 ETA 都包在 `Promise.allSettled` 裡，單一 API timeout 只會讓那一張卡片顯示錯誤，不會讓整頁崩潰。
@@ -307,4 +308,6 @@ scripts/
 | GitHub Pages 白屏 | 建置未設定 `base`，資源全指向網站根目錄；Router 也沒有 basename。已補上 `base`、Router basename、manifest `start_url/scope`、`404.html` 與部署 workflow。 |
 | 靜態 JSON 拖慢 FCP | 城巴索引（350 KB）原本打包進主 chunk。已搬到 `public/data/`，改由 IndexedDB 延遲載入，主 bundle 不再包含站點索引。 |
 | 單一 ETA 失敗拖垮整頁 | `useBusData` 原本即使用 `Promise.allSettled`，本次補上站點索引的 `allSettled` 與更明確的錯誤訊息，確保部分失敗仍能顯示其他業者資料。 |
+| **同一路線出現兩個相同到站時間** | `src/services/api.js` 新增 `normalizeEtaList()`：ETA 先依實際到站時間排序，相鄰班次時間差 < 45 秒或 `HH:mm`＋剩餘分鐘相同時去重；合併月台時優先保留目標 `seq` 的班次，最近三班不再重複。 |
+| **站點名稱只有中文** | 站點資料層沿用 `nameEn`（KMB `name_en`；城巴／小巴靜態索引每筆第 3 欄）；`StopSection`／`RouteSequence` 在中文站名下方以 `text-[11px]` 顯示英文站名，`RouteStopsPanel` 標題補上英文起訖站，方便外籍人士查看。 |
 

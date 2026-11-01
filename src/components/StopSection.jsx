@@ -81,6 +81,11 @@ export default function StopSection({
             <span className="block truncate text-lg font-semibold leading-snug text-slate-900 dark:text-slate-100">
               {stop.nameTc || stop.nameEn || stop.id}
             </span>
+            {stop.nameTc && stop.nameEn && (
+              <span className="block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                {stop.nameEn}
+              </span>
+            )}
             <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <OperatorBadge operator={stop.operator} />
               {Number.isFinite(distance) && <span>· {formatDistance(distance)}</span>}

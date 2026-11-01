@@ -20,6 +20,7 @@
  * 本層負責把三種不同形狀的資料合併成 UI 可直接渲染的「單一乾淨陣列」。
  */
 import fareTable from '../data/fares.json'
+import { formatClock } from '../utils/format.js'
 import { loadStaticData } from './staticData.js'
 
 const KMB_BASE = 'https://data.etabus.gov.hk/v1/transport/kmb'
@@ -282,8 +283,6 @@ function normalizeStopName(name = '') {
 const SAME_STOP_RADIUS = 120
 /** 合併月台時最多額外查詢的站牌數量（避免一次打出太多 ETA 請求） */
 const MAX_SIBLINGS = 5
-/** 合併月台時，時間差小於此值視為同一班車（毫秒） */
-const SIBLING_ETA_WINDOW = 60 * 1000
 
 /**
  * 附近站點：以座標篩選半徑內的 KMB + CTB + GMB 站點，依距離排序
@@ -579,8 +578,11 @@ function createRouteEntry(operator, row) {
 }
 
 function toEta(row) {
+  const stopSeq = Number(row.seq ?? row.stop_seq)
   return {
     seq: Number(row.eta_seq ?? 0),
+    // 站序（route sequence）：合併多個月台去重時，用來優先保留目標站牌的班次
+    stopSeq: Number.isFinite(stopSeq) ? stopSeq : null,
     minutes: minutesUntil(row.eta),
     time: row.eta ?? null,
     remark: row.rmk_tc ?? '',
@@ -600,48 +602,89 @@ function withNextMinutes(entry) {
 }
 
 /** 把「一列一班車」的 ETA 回應整理成「一條路線一筆 + 最近三班車」 */
-function groupEtaRows(operator, rows) {
+function groupEtaRows(operator, rows, targetSeq = null) {
   const groups = new Map()
 
   for (const row of rows) {
     if (!row?.route) continue
-    // 同一路線可能有多個 service_type（例如 5C 的 1 與 2），到站時間相同，
-    // 這裡只用「路線 + 方向」當 key，避免同一班車重複顯示。
+    // 同一路線可能有多個 service_type（例如 5C 的 1 與 2），到站時間相同；
+    // 這裡只用「路線 + 方向」當 key，同一班車交由 normalizeEtaList 去重。
     const key = `${normalize(row.route)}|${row.dir ?? 'O'}`
     if (!groups.has(key)) groups.set(key, createRouteEntry(operator, row))
-    const group = groups.get(key)
-    if (group.etas.length < ETA_PER_ROUTE) group.etas.push(toEta(row))
+    groups.get(key).etas.push(toEta(row))
   }
 
   return [...groups.values()]
-    .map((entry) => withNextMinutes({ ...entry, etas: [...entry.etas].sort((a, b) => a.seq - b.seq).slice(0, ETA_PER_ROUTE) }))
+    .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
     .sort(sortEtaGroups)
 }
 
+/** 兩筆 ETA 視為同一班車的最大時間差（毫秒） */
+const DUPLICATE_ETA_WINDOW = 45 * 1000
+
 /**
- * 整理多筆到站時間：依實際時間排序、60 秒內視為同一班車、沒有時間的班次排最後，
- * 最後只保留最近三班並重新編號。
+ * 判斷相鄰兩筆 ETA 是否為同一班車：
+ *   1. 時間戳相差小於 45 秒（不同 seq／service_type／GPS 秒差造成的重複）
+ *   2. 格式化後的 HH:mm 與剩餘 minutes 完全相同
  */
-function trimEtas(input) {
-  const timed = [...input]
-    .filter((eta) => eta.time && !Number.isNaN(Date.parse(eta.time)))
-    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
-    .reduce((kept, eta) => {
-      const last = kept[kept.length - 1]
-      if (!last) return [eta]
-      return Date.parse(eta.time) - Date.parse(last.time) < SIBLING_ETA_WINDOW ? kept : [...kept, eta]
-    }, [])
+function isDuplicateEta(prev, next) {
+  const prevTime = Date.parse(prev.time)
+  const nextTime = Date.parse(next.time)
+  if (!Number.isFinite(prevTime) || !Number.isFinite(nextTime)) return false
+  if (Math.abs(nextTime - prevTime) < DUPLICATE_ETA_WINDOW) return true
+  return formatClock(prev.time) === formatClock(next.time) && prev.minutes === next.minutes
+}
 
-  const untimed = input.filter((eta) => !eta.time || Number.isNaN(Date.parse(eta.time)))
+/** 重複班次中該保留哪一筆：目標站序優先，其次保留有備註（例如「最後班次」）的那筆 */
+function isPreferredEta(candidate, current, targetSeq) {
+  if (
+    targetSeq != null &&
+    Number(candidate.stopSeq) === Number(targetSeq) &&
+    Number(current.stopSeq) !== Number(targetSeq)
+  ) {
+    return true
+  }
+  return Boolean(candidate.remark) && !current.remark
+}
 
-  return [...timed, ...untimed].slice(0, ETA_PER_ROUTE).map((eta, index) => ({ ...eta, seq: index + 1 }))
+/**
+ * 整理單一路線方向的 ETA：依實際到站時間排序 → 去重 → 取最近三班 → 重新編號。
+ *
+ * 去重時若呼叫端有傳入目標站序（targetSeq），優先保留 stopSeq 與目標相符的班次，
+ * 確保合併多月台時顯示的是「查詢的那個站牌」的資料，前三個班次不會出現兩個相同時間。
+ *
+ * @param {Array} input
+ * @param {number|null} [targetSeq]
+ */
+function normalizeEtaList(input, targetSeq = null) {
+  const timed = []
+  const untimed = []
+  for (const eta of input) {
+    if (eta.time && !Number.isNaN(Date.parse(eta.time))) timed.push(eta)
+    else untimed.push(eta)
+  }
+  timed.sort((a, b) => Date.parse(a.time) - Date.parse(b.time) || a.seq - b.seq)
+
+  const deduped = []
+  for (const eta of timed) {
+    const prev = deduped[deduped.length - 1]
+    if (prev && isDuplicateEta(prev, eta)) {
+      if (isPreferredEta(eta, prev, targetSeq)) deduped[deduped.length - 1] = eta
+      continue
+    }
+    deduped.push(eta)
+  }
+
+  return [...deduped, ...untimed]
+    .slice(0, ETA_PER_ROUTE)
+    .map((eta, index) => ({ ...eta, seq: index + 1 }))
 }
 
 /**
  * 合併多個站牌（月台）的 ETA：同一路線＋方向只留一筆，
  * 到站時間依實際時間排序後取最近三班。
  */
-function mergeEtaGroups(groupSets) {
+function mergeEtaGroups(groupSets, targetSeq = null) {
   if (groupSets.length === 1) return groupSets[0]
 
   const merged = new Map()
@@ -658,17 +701,17 @@ function mergeEtaGroups(groupSets) {
   }
 
   return [...merged.values()]
-    .map((entry) => withNextMinutes({ ...entry, etas: trimEtas(entry.etas) }))
+    .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
     .sort(sortEtaGroups)
 }
 
 /** 九巴：以站點查全部路線的 ETA（同一車站的多個月台會合併） */
-export async function getKmbStopEtas(stopId, siblingIds = []) {
+export async function getKmbStopEtas(stopId, siblingIds = [], targetSeq = null) {
   const ids = [stopId, ...siblingIds.filter((id) => id && id !== stopId)].slice(0, MAX_SIBLINGS + 1)
   const results = await mapWithConcurrency(ids, KMB_ETA_CONCURRENCY, async (id) => {
     try {
       const json = await fetchJson(`${KMB_BASE}/stop-eta/${encodeURIComponent(id)}`)
-      return groupEtaRows('KMB', json.data ?? [])
+      return groupEtaRows('KMB', json.data ?? [], targetSeq)
     } catch (error) {
       if (ids.length === 1) throw error
       console.warn(`[api] 九巴站點 ${id} 讀取失敗：${error.message}`)
@@ -679,7 +722,7 @@ export async function getKmbStopEtas(stopId, siblingIds = []) {
   // 只有「所有站牌都失敗」才算錯誤；單一月台失敗仍顯示其他月台的班次
   const succeeded = results.filter((entries) => entries !== null)
   if (succeeded.length === 0) throw new ApiError('九巴站點暫時無法提供到站資料，請稍後再試')
-  return mergeEtaGroups(succeeded)
+  return mergeEtaGroups(succeeded, targetSeq)
 }
 
 /**
@@ -706,7 +749,7 @@ function normalizeCitybusBatchRow(row) {
   }
 }
 
-export async function getCitybusStopEtas(stopId, routes = []) {
+export async function getCitybusStopEtas(stopId, routes = [], targetSeq = null) {
   if (!stopId) return []
 
   // 1) 批次端點：一次拿齊該站所有路線的 ETA（含靜態索引未收錄的新路線）
@@ -714,7 +757,7 @@ export async function getCitybusStopEtas(stopId, routes = []) {
     const json = await fetchJson(
       `${CTB_BATCH_ETA}/CTB/${encodeURIComponent(stopId)}?lang=zh-hant`,
     )
-    return groupEtaRows('CTB', (json.data ?? []).map(normalizeCitybusBatchRow))
+    return groupEtaRows('CTB', (json.data ?? []).map(normalizeCitybusBatchRow), targetSeq)
   } catch (error) {
     console.warn(`[api] 城巴批次 ETA（站點 ${stopId}）失敗，改用逐路線查詢：${error.message}`)
   }
@@ -741,15 +784,17 @@ export async function getCitybusStopEtas(stopId, routes = []) {
   if (succeeded.length === 0) {
     throw new ApiError('城巴暫時無法提供到站資料，請稍後再試')
   }
-  return groupEtaRows('CTB', succeeded.flat())
+  return groupEtaRows('CTB', succeeded.flat(), targetSeq)
 }
 
 /** 小巴 ETA 一列一班車 → UI 共用格式 */
 function toGmbEntry(item, meta) {
+  const stopSeq = Number(item.stop_seq)
   const etas = (item.eta ?? []).map((eta) => {
     const diff = Number(eta.diff)
     return {
       seq: Number(eta.eta_seq ?? 0),
+      stopSeq: Number.isFinite(stopSeq) ? stopSeq : null,
       minutes: Number.isFinite(diff) ? diff : minutesUntil(eta.timestamp),
       time: eta.timestamp ?? null,
       remark: eta.remarks_tc ?? '',
@@ -780,7 +825,7 @@ function toGmbEntry(item, meta) {
  *      回應只帶 route_id / route_seq，路線號碼與目的地要用靜態對照表補齊。
  *      同一路線號碼可能有多個 route_id（不同班次描述、目的地），這裡以「路線＋方向」合併成一張卡。
  */
-export async function getGmbStopEtas(stopId, siblingIds = []) {
+export async function getGmbStopEtas(stopId, siblingIds = [], targetSeq = null) {
   const ids = [stopId, ...siblingIds.filter((id) => id && id !== stopId)].slice(0, MAX_SIBLINGS + 1)
   const routeMeta = await getGmbRouteMeta()
   const metaMap = new Map(routeMeta.map((meta) => [`${meta.routeId}|${meta.routeSeq}`, meta]))
@@ -813,7 +858,7 @@ export async function getGmbStopEtas(stopId, siblingIds = []) {
       }
 
       return [...groups.values()]
-        .map((entry) => withNextMinutes({ ...entry, etas: trimEtas(entry.etas) }))
+        .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
         .sort(sortEtaGroups)
     } catch (error) {
       if (ids.length === 1) throw error
@@ -825,23 +870,25 @@ export async function getGmbStopEtas(stopId, siblingIds = []) {
   // 全部站牌都失敗才視為錯誤，單一站牌失敗仍顯示其他站牌的班次
   const succeeded = results.filter((entries) => entries !== null)
   if (succeeded.length === 0) throw new ApiError('小巴站點暫時無法提供到站資料，請稍後再試')
-  return mergeEtaGroups(succeeded)
+  return mergeEtaGroups(succeeded, targetSeq)
 }
 
 /**
  * 統一入口：依業者呼叫對應的 ETA API
- * @param {{operator:string,id:string,routes?:string[],siblingIds?:string[]}} stop
+ * @param {{operator:string,id:string,seq?:number,routes?:string[],siblingIds?:string[]}} stop
  */
 export async function getStopEtas(stop) {
   if (!stop?.id) return []
+  // 目標站序：合併月台去重時，優先保留這個站牌的班次（呼叫端有帶 seq 才生效）
+  const targetSeq = stop.seq != null && Number.isFinite(Number(stop.seq)) ? Number(stop.seq) : null
   if (stop.operator === 'CTB') {
     const routes = stop.routes?.length ? stop.routes : (await getStopInfo('CTB', stop.id))?.routes
-    return getCitybusStopEtas(stop.id, routes ?? [])
+    return getCitybusStopEtas(stop.id, routes ?? [], targetSeq)
   }
   if (stop.operator === 'GMB') {
-    return getGmbStopEtas(stop.id, stop.siblingIds ?? [])
+    return getGmbStopEtas(stop.id, stop.siblingIds ?? [], targetSeq)
   }
-  return getKmbStopEtas(stop.id, stop.siblingIds ?? [])
+  return getKmbStopEtas(stop.id, stop.siblingIds ?? [], targetSeq)
 }
 
 /** 依路線過濾（搜尋頁只顯示被選中的那條路線） */
