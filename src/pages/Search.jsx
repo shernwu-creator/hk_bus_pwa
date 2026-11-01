@@ -124,7 +124,7 @@ export default function Search() {
     [expandedStops, selected],
   )
 
-  const { groups } = useBusData(etaRefs, {
+  const { groups, updatedAt: etaUpdatedAt } = useBusData(etaRefs, {
     enabled: etaRefs.length > 0,
     routeFilter: selected?.route ?? null,
   })
@@ -172,6 +172,7 @@ export default function Search() {
         isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
         onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
         onRetry={retryStops}
+        etaUpdatedAt={etaUpdatedAt}
       />
     )
   }

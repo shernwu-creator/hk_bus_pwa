@@ -14,6 +14,7 @@ import {
 import EtaSlots from '../components/EtaSlots.jsx'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
+import { TravelPlanBanner, TravelPlanChips, TravelPlanToggle } from '../components/TravelPlan.jsx'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import {
   distanceInMeters,
@@ -23,6 +24,7 @@ import {
   getStopEtas,
 } from '../services/api.js'
 import { formatClock } from '../utils/format.js'
+import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
 
 /** 與 useBusData 相同的 30 秒輪詢節奏 */
 const REFRESH_INTERVAL = 30000
@@ -214,14 +216,55 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
   return { ...state, refresh }
 }
 
-/** 展開某站時顯示的最近三班車＋資料更新時間 */
-function StopEtaPanel({ id, stop, route, direction, siblingIds }) {
+/**
+ * 展開某站時顯示的最近三班車＋資料更新時間
+ *
+ * 開啟「推算各站到站時間」模式時，ETA 格會變成按鈕（點擊即把該班車設為推算基準）；
+ * 同時透過 `onEtasChange` 把本站的實時 ETA 回報給頁面，下游各站推算時可優先參考
+ * 官方同一班車的遞增時間，不必再額外發請求。
+ *
+ * @param {object} props
+ * @param {string} props.id 面板 DOM id（aria-controls 用）
+ * @param {object} props.stop 站點
+ * @param {string} props.route 路線號碼
+ * @param {string} props.direction outbound／inbound
+ * @param {string[]} props.siblingIds 同站其他月台 id
+ * @param {boolean} [props.planSelectable] ETA 格是否可點擊切換推算基準
+ * @param {number|null} [props.planSelectedIndex] 目前基準班次索引
+ * @param {(index:number) => void} [props.onSelectEta] 點擊 ETA 格
+ * @param {(stopId:string, record:{etas:Array, updatedAt:number}|null) => void} [props.onEtasChange]
+ *        回報本站實時 ETA；收合時以 null 移除
+ */
+function StopEtaPanel({
+  id,
+  stop,
+  route,
+  direction,
+  siblingIds,
+  planSelectable = false,
+  planSelectedIndex = null,
+  onSelectEta,
+  onEtasChange,
+}) {
   const { etas, loading, updating, error, updatedAt, refresh } = useStopEtas({
     stop,
     route,
     direction,
     siblingParam: siblingIds.join(','),
   })
+
+  // 把最新的實時 ETA 往上回報（只在資料真的變動時觸發，不會無限迴圈）
+  useEffect(() => {
+    if (!onEtasChange) return
+    onEtasChange(stop.id, { etas, updatedAt, loading, error })
+  }, [onEtasChange, stop.id, etas, updatedAt, loading, error])
+
+  // 面板收合／換站時清掉，避免推算用到已不在畫面上的舊資料
+  useEffect(() => {
+    if (!onEtasChange) return undefined
+    const stopId = stop.id
+    return () => onEtasChange(stopId, null)
+  }, [onEtasChange, stop.id])
 
   return (
     <div
@@ -248,7 +291,12 @@ function StopEtaPanel({ id, stop, route, direction, siblingIds }) {
         </div>
       ) : (
         <>
-          <EtaSlots etas={etas} />
+          <EtaSlots
+            etas={etas}
+            selectable={planSelectable}
+            selectedIndex={planSelectedIndex}
+            onSelect={onSelectEta}
+          />
           {etas.length === 0 && (
             <p className="mt-1.5 px-1 text-[11px] text-slate-500 dark:text-slate-400">
               此方向暫無實時到站資料，可能已收班或班次未開始。
@@ -319,6 +367,12 @@ export default function RouteSequence() {
   // 展開狀態改由元件 state 管理，可同時展開多站；URL 的 stop 只作為「來源站」
   // （高亮＋本站 chip＋分享用）與重新載入時的初始展開依據，不再限制同時展開的站數。
   const [expandedStopIds, setExpandedStopIds] = useState(() => new Set())
+  // 「推算各站到站時間」模式：以某一站某一班車為基準，推算後續各站的車程與預計到達時間
+  const [planEnabled, setPlanEnabled] = useState(false)
+  const [planBaseStopId, setPlanBaseStopId] = useState(null)
+  const [planEtaIndex, setPlanEtaIndex] = useState(0)
+  // 各站已取得的實時 ETA（由展開中的站點面板回報）；推算時優先參考同一班車的遞增時間
+  const [liveEtasByStopId, setLiveEtasByStopId] = useState(() => new Map())
   const listRef = useRef(null)
   const sourceRef = useRef(null)
 
@@ -392,6 +446,95 @@ export default function RouteSequence() {
     if (!activeStop) return []
     return [...highlightedIds].filter((id) => id && id !== activeStop.id)
   }, [activeStop, highlightedIds])
+
+  /* ---------------------------------------------------------------- */
+  /* 推算各站到站時間（App 1933 風格）                                 */
+  /* ---------------------------------------------------------------- */
+
+  // 推算基準站：使用者點過的站優先 → 來源站（本站）→ 全線第一站
+  const planBaseStop = useMemo(() => {
+    if (stops.length === 0) return null
+    if (planBaseStopId != null) {
+      const picked = stops.find((stop) => String(stop.id) === String(planBaseStopId))
+      if (picked) return picked
+    }
+    return activeStop ?? stops[0]
+  }, [stops, planBaseStopId, activeStop])
+
+  const planBaseIndex = planBaseStop
+    ? stops.findIndex((stop) => String(stop.id) === String(planBaseStop.id))
+    : -1
+
+  // 以「最近一次 ETA 更新時間」當作現在：避免在 render 期間呼叫 Date.now()，
+  // 也讓推算結果跟畫面上的資料同步（每 30 秒輪詢就會更新一次）。
+  const liveNow = useMemo(() => {
+    let latest = 0
+    for (const record of liveEtasByStopId.values()) {
+      if (Number.isFinite(record?.updatedAt)) latest = Math.max(latest, record.updatedAt)
+    }
+    return latest
+  }, [liveEtasByStopId])
+
+  // 基準班次：該站最近三班中，被選中的那一班（同時附上被夾回後的實際索引）
+  const planBase = useMemo(
+    () =>
+      planBaseStop
+        ? pickBaseEta(liveEtasByStopId.get(String(planBaseStop.id)), planEtaIndex, liveNow)
+        : null,
+    [planBaseStop, liveEtasByStopId, planEtaIndex, liveNow],
+  )
+
+  // 基準站的實時 ETA 是否還在載入（用來顯示「正在取得基準班次」而不是「暫無班次」）
+  const planBaseRecord = planBaseStop ? liveEtasByStopId.get(String(planBaseStop.id)) : null
+  const planBaseLoading = Boolean(planBaseRecord?.loading) && planBase == null
+
+  // 後續各站的累計車程與預計到達時間（沒有實時班次時只算車程）
+  const travelPlan = useMemo(() => {
+    if (!planEnabled || !planBaseStop) return null
+    return buildTravelPlan({
+      stops,
+      baseIndex: planBaseIndex,
+      baseTime: planBase?.time ?? null,
+      liveEtas: liveEtasByStopId,
+      now: liveNow,
+    })
+  }, [planEnabled, planBaseStop, planBaseIndex, planBase, stops, liveEtasByStopId, liveNow])
+
+  // 回報某一站的最新實時 ETA（收合站點時 record 為 null）
+  const handleEtasChange = useCallback((stopId, record) => {
+    const key = String(stopId)
+    setLiveEtasByStopId((prev) => {
+      if (!record) {
+        if (!prev.has(key)) return prev
+        const next = new Map(prev)
+        next.delete(key)
+        return next
+      }
+      const next = new Map(prev)
+      next.set(key, record)
+      return next
+    })
+  }, [])
+
+  // 點擊任一站點的班次：以「那一站的這一班」為推算基準（並自動開啟推算模式）
+  const handleSelectPlanEta = useCallback((stop, index) => {
+    setPlanEnabled(true)
+    setPlanBaseStopId(stop.id)
+    setPlanEtaIndex(index)
+  }, [])
+
+  // 開啟推算模式時先展開基準站，才能取得它的最近三班 ETA 作為基準
+  const togglePlanMode = useCallback(() => {
+    if (planEnabled) {
+      setPlanEnabled(false)
+      return
+    }
+    setPlanEnabled(true)
+    const baseId = planBaseStop?.id
+    if (baseId == null) return
+    setPlanBaseStopId((current) => current ?? baseId)
+    setExpandedStopIds((prev) => (prev.has(baseId) ? prev : new Set(prev).add(baseId)))
+  }, [planBaseStop, planEnabled])
 
   // 站序載入後把來源站捲到清單中央（只改 scrollTop，避免 scrollIntoView 讓整頁跳動）
   const stopsSignature = `${stops.length}|${stops[0]?.id ?? ''}|${stops[stops.length - 1]?.id ?? ''}`
@@ -675,13 +818,22 @@ export default function RouteSequence() {
 
         {stopsStatus === 'ready' && stops.length > 0 && (
           <>
-            <div className="flex shrink-0 items-center justify-between gap-2 px-1 text-[10px] text-slate-400 dark:text-slate-500">
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" aria-hidden="true" />
-                全線站序 · {stops.length} 站
+            <div className="flex shrink-0 items-center justify-between gap-2 px-1">
+              <span className="flex min-w-0 items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+                <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="truncate">全線站序 · {stops.length} 站</span>
               </span>
-              <span>點擊站點可同時展開多站</span>
+              <TravelPlanToggle active={planEnabled} onClick={togglePlanMode} />
             </div>
+
+            {planEnabled && travelPlan && (
+              <TravelPlanBanner
+                plan={travelPlan}
+                etaLabel={`第 ${(planBase?.index ?? 0) + 1} 班`}
+                baseLoading={planBaseLoading}
+                className="shrink-0"
+              />
+            )}
 
             <ol
               ref={listRef}
@@ -693,6 +845,9 @@ export default function RouteSequence() {
                 const isSource = activeStopId === stop.id
                 const isFavorite = favoriteKeys.has(favoriteKey(stop))
                 const panelId = `stop-eta-${String(stop.id).replace(/[^A-Za-z0-9_-]+/g, '-')}`
+                const planEntry = travelPlan?.byStopId.get(String(stop.id)) ?? null
+                const isPlanBase =
+                  planEnabled && planBaseStop != null && String(planBaseStop.id) === String(stop.id)
                 return (
                   <li key={`${stop.id}-${stop.seq}`} ref={isSource ? sourceRef : null}>
                     <div
@@ -743,6 +898,22 @@ export default function RouteSequence() {
                               </span>
                             )}
                           </span>
+                          {(isPlanBase || planEntry) && (
+                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                              {isPlanBase ? (
+                                <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
+                                  推算基準
+                                  {travelPlan?.baseTime != null
+                                    ? ` · ${formatClock(travelPlan.baseTime)} 到站`
+                                    : planBaseLoading
+                                      ? '（正在取得班次…）'
+                                      : '（暫無實時班次）'}
+                                </span>
+                              ) : (
+                                <TravelPlanChips entry={planEntry} />
+                              )}
+                            </span>
+                          )}
                         </span>
                       </button>
 
@@ -787,6 +958,10 @@ export default function RouteSequence() {
                         route={route}
                         direction={directionValue}
                         siblingIds={isSource ? activeSiblingIds : []}
+                        planSelectable={planEnabled}
+                        planSelectedIndex={isPlanBase ? (planBase?.index ?? null) : null}
+                        onSelectEta={(index) => handleSelectPlanEta(stop, index)}
+                        onEtasChange={handleEtasChange}
                       />
                     )}
                   </li>

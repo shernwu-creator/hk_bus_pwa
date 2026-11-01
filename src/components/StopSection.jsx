@@ -3,6 +3,7 @@ import { ChevronDown, MapPin, Star, X } from 'lucide-react'
 import BusCard from './BusCard.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
+import { TravelPlanChips } from './TravelPlan.jsx'
 import { favoriteKey } from '../hooks/useFavorites.js'
 import { formatDistance, stopPlatformCode } from '../utils/format.js'
 import { openRouteSequence } from '../utils/routeLinks.js'
@@ -40,6 +41,9 @@ function routeEntryKey(entry) {
  * @param {() => void} [props.onRetry]
  * @param {Array|null} [props.stops] 群組內所有已收藏站位（收藏頁分組用；不傳時視為單一站點）
  * @param {(stop:object) => void} [props.onRemoveStop] 移除群組內特定站位
+ * @param {{travelMinutes:number, arrivalMs:number|null, source:'geometry'|'live'}|null} [props.planChips]
+ *        站序推算模式下這一站的車程／預計到達（見 src/utils/travelPlan.js）
+ * @param {string|null} [props.planBaseLabel] 這一站是推算基準站時的標籤文字
  */
 export default function StopSection({
   group,
@@ -53,6 +57,8 @@ export default function StopSection({
   onRetry,
   stops = null,
   onRemoveStop,
+  planChips = null,
+  planBaseLabel = null,
 }) {
   const [showAll, setShowAll] = useState(false)
   const sortedRoutes = useMemo(() => sortByArrival(group?.routes ?? []), [group?.routes])
@@ -136,6 +142,17 @@ export default function StopSection({
                     {code}
                   </span>
                 ))}
+              </span>
+            )}
+            {(planBaseLabel || planChips) && (
+              <span className="mt-1 flex flex-wrap items-center gap-1">
+                {planBaseLabel ? (
+                  <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
+                    {planBaseLabel}
+                  </span>
+                ) : (
+                  <TravelPlanChips entry={planChips} />
+                )}
               </span>
             )}
           </span>

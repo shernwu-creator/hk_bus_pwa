@@ -143,7 +143,8 @@ src/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊開新視窗看站序）
 │  ├─ StopMap.jsx            # 附近站點互動地圖（Leaflet + OpenStreetMap 圖磚；深色以 CSS filter 轉換、站點 flyTo 聯動）
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；傳入 stops 時以群組顯示代號 chip 與逐站移除）
-│  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用）
+│  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用；可切換成推算基準按鈕）
+│  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單
 │  ├─ SearchBar.jsx / OperatorBadge.jsx / BottomNav.jsx
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
@@ -159,6 +160,7 @@ src/
 │  └─ fares.json             # 由 sync:data 產生（請勿手改）
 └─ utils/
    ├─ format.js              # 距離／時間／分鐘／服務類型文字；normalizeStopName()／stopPlatformCode() 清理站名代號
+   ├─ travelPlan.js          # 車程／預計到達推算（幾何估算＋實時 ETA 校準；車速、繞行係數、停站時間等參數集中在這裡）
    └─ routeLinks.js          # 新視窗站序頁的 URL 組裝與 window.open（含 BASE_URL 前綴）
 
 public/
@@ -241,7 +243,38 @@ scripts/
    反向站點 ID 通常不同，因此會先用站名、再用座標在反向站序中找回最接近的站點並自動展開；
    若另一方向不停靠附近位置，就只顯示站序、不標示「本站」。
 
-### 6.6 收藏站點分組
+### 6.6 推算各站到站時間（類似 App 1933）
+
+路線站序頁（`RouteSequence`）與搜尋頁站序面板（`RouteStopsPanel`）都有「推算各站到站時間」切換鈕
+（時鐘圖示）。開啟後，以目前基準站「最近一班車」的 ETA 為起點，推算後續每一站的累計車程與預計到達時間。
+純計算集中在 `src/utils/travelPlan.js`，UI 共用 `src/components/TravelPlan.jsx`。
+
+演算法（不額外發 API）：
+
+1. **幾何車程**：相鄰站點用 Haversine 直線距離 × 道路繞行係數 `1.3` 換算道路里程，
+   除以香港市區巴士平均車速 `19 km/h` 得到行駛時間，再累加「每經過一站 `35` 秒」的停靠時間：
+   `車程分鐘 = round(累計道路里程 ÷ 19 000 × 60 + 經過站數 × 35 ÷ 60)`（最少 1 分）。
+   缺少座標的相鄰站以平均站距 450 公尺代替，banner 會提示「部分站點缺少座標」。
+2. **實時 ETA 校準（優先策略）**：頁面上已展開的站點會取得官方實時 ETA。配對「同一班車」的規則：
+   候選班次必須晚於上一個錨點（有官方時間的站）至少 1 分鐘、且不晚於「幾何預測 + 容許誤差」
+   （依車程長短在 **4～15 分鐘**之間縮放）；符合條件者取「加權後最接近幾何預測」的一班
+   （偏早的誤差權重較低，因為 19 km/h 的幾何估算偏保守、容易高估車程）。採用後以該站為新錨點，
+   之後的站改用「錨點時間 + 幾何車程」推算，讓上遊的實際延誤往下游傳遞；超過 90 秒沒有更新的 ETA
+   不再採用，若被夾回成單調遞增的推算值也不會標成官方資料。
+3. **預計到達**：`基準班次時間 + 累計車程`，以 `formatClock()` 顯示成 `HH:mm`；各站車程與時間都強制遞增
+   （實時資料抖動或四捨五入時也不會出現「後站比前站早」）。
+4. **沒有實時班次時**：只顯示純車程（`+X 分鐘車程`）並給出友善提示，不顯示 `HH:mm`。
+
+互動：
+
+- **站序頁**：開啟推算時會自動展開基準站，banner 標示「基準站 · 第 N 班 · `HH:mm`」；
+  點擊任一站展開面板中的第 1～3 班 ETA 格，即可把「那一站的這一班」切換成推算基準
+  （`EtaSlot` 在推算模式下才變成按鈕）。基準站列顯示「推算基準」chip，其後每一站顯示 `+X 分` 與 `HH:mm 到達`。
+- **搜尋頁站序面板**：以「已展開且取得實時 ETA 的最前面站點」為基準（都沒有時退回第一站做純車程推算）；
+  `useBusData()` 的 `updatedAt` 會傳入面板，用來判斷 ETA 是否新鮮（不使用已過期的背景資料）。
+- 推算結果只是**估算**（路況、站距、燈位、上落客都會影響），UI 一律以「推算／約」呈現，不代表官方承諾。
+
+### 6.7 收藏站點分組
 
 收藏頁把「同一個車站的多個站位」合併成一張卡片，但 **localStorage 格式完全不變**：仍只寫入
 `hkb:favorites:v1`，每筆為 `operator`／`id`／`nameTc`／`nameEn`／`lat`／`lng`／`routes`／`siblingIds`／`savedAt`
@@ -272,7 +305,7 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - 標題右側星星＝**移除整個群組**（群組內所有站位一起取消收藏）；展開後「此群組站位」區塊中每個 chip
   右側的 X＝**只移除該站位**，其餘站位保持展開。
 
-### 6.7 附近站點互動地圖（Leaflet）
+### 6.8 附近站點互動地圖（Leaflet）
 
 首頁頂部的地圖刻意不用 Google Maps SDK（需要 API Key 與計費、載入較慢），改用 **Leaflet 1.9 + 官方 OpenStreetMap 圖磚**
 （`https://tile.openstreetmap.org/{z}/{x}/{y}.png`）：免 Key，但須遵守
@@ -335,6 +368,11 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
   （站點清單與 ETA 快取仍然有效）。若日後需要大量或離線使用，應改用自架圖磚或明確允許的商用供應商。Google Maps 按鈕只是外部連結，
   沒有嵌入 SDK，也沒有即時路線導航。
 - 只支援九巴、城巴與專線小巴，未包含龍運、新大嶼山巴士、港鐵巴士與居民巴士。
+- **「各站到站時間」是推算而非官方資料**：`src/utils/travelPlan.js` 以直線距離 × 1.3 繞行係數、
+  19 km/h 平均車速與每站 35 秒停靠估算，實際受路況、燈位與上落客人數影響，長距離與繁忙時段誤差會放大。
+  只有「已展開站點」的實時 ETA 會被採用（靠進站順序推測同一班車；班距很小的路線、官方漏班或前車嚴重
+  誤點時仍可能配到相鄰班次），其餘仍是幾何估算；小巴站點索引偶有缺少座標，會以平均站距代替
+  （banner 會標示），數值僅供參考，請以官方 App／站牌顯示為準。
 
 ---
 
@@ -380,4 +418,5 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | **同一車站多個站位代號各自佔一個收藏區塊** | 顯示時以 `normalizeStopName()`（移除尾端 `(YT123)` 與「- 3號月台」後綴）把同名／座標 ≤ 100 公尺且站名高度相符（相似度 ≥ 0.95、一方包含另一方，或順序無關地完全相同）的收藏分組，同名但相距 > 500 公尺則分開；`hkb:favorites:v1` 格式完全不變。展開時合併群組各站位 ETA（同 `operator+route+direction+serviceType` 只留最近一班較早的卡片）並記住來源月台；標題星星移除整組，「此群組站位」chip 的 X 只移除該站位。 |
 | **首頁上方要有互動地圖，並與站點列表聯動** | 新增 `StopMap.jsx`：Leaflet 1.9 + OpenStreetMap 圖磚（免 API Key；深色以 CSS filter 反轉），以 `React.lazy` 動態載入避免拖慢首屏；依 `useTheme`／`<html class="dark">` 即時換底圖。站點載入後預設展開 `nearbyStops[0]` 並 `flyTo`，點列表站點 → 地圖 `flyTo`，點圖釘 → 展開卡片並平滑捲動到該卡片；右上「在 Google Maps 開啟此站」（街景／步行導航）、右下重新定位；圖磚以 `hkbus-map-tiles` 的 `CacheFirst` 快取。 |
 | **CartoDB 圖磚被換成「API KEY REQUIRED」浮水印** | CartoDB 圖磚 HTTP 仍回 200，但內容已變成要求 API Key 的浮水印圖（只檢查狀態碼不會發現）。改用官方 OSM `https://tile.openstreetmap.org/{z}/{x}/{y}.png` 與標準 `© OpenStreetMap contributors` 版權標示；深色模式不再依賴 `dark_all`，改在 tile layer 加上 `.map-tiles-dark`，以 `filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)` 反轉，維持免 API Key；SW 圖磚快取改為只快取 `tile.openstreetmap.org` 正常瀏覽過的圖磚（7 天 TTL）。 |
+| **參考 App 1933：以目前班次推算後續各站的到達時間** | 新增 `src/utils/travelPlan.js`：以直線距離 × 1.3 繞行係數、19 km/h 平均車速與每站 35 秒停靠累加出「到第 N 站的累計車程」，再以已展開站點的實時 ETA 校準（以「錨點後最早出現、且不晚於幾何預測＋容許誤差 4～15 分鐘」的班次推測為同一班車，採用後以該站為新錨點），最後顯示 `HH:mm` 預計到達；無實時班次時只顯示 `+X 分鐘車程`。UI 為 `src/components/TravelPlan.jsx`（切換鈕／基準說明列／膠囊），`EtaSlots` 新增 `selectable`／`selected`，可在站序頁點 ETA 格切換推算基準班次；`RouteSequence` 與 `RouteStopsPanel`（搜尋頁站序）皆可使用。 |
 
