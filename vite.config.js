@@ -143,6 +143,16 @@ export default defineConfig(({ command, isPreview }) => {
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
+            {
+              // Leaflet 地圖圖磚（CartoDB）：CacheFirst，重複瀏覽／短暫離線時不用重新下載
+              urlPattern: ({ url }) => url.hostname.endsWith('.basemaps.cartocdn.com'),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: `${CACHE_PREFIX}map-tiles`,
+                expiration: { maxEntries: 240, maxAgeSeconds: 7 * 24 * 60 * 60 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
           ],
         },
         devOptions: {

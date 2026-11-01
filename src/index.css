@@ -51,6 +51,18 @@
     background-size: 200% 100%;
     @apply animate-shimmer;
   }
+
+  /* Leaflet 內建控制項：地圖圖磚會跟隨主題切換，深色模式下縮放鈕與版權列也要變深 */
+  .dark .leaflet-bar a,
+  .dark .leaflet-container .leaflet-control-attribution {
+    border-color: theme('colors.slate.700');
+    background-color: rgb(15 23 42 / 0.9);
+    color: theme('colors.slate.300');
+  }
+
+  .dark .leaflet-control-attribution a {
+    color: theme('colors.sky.400');
+  }
 }
 
 @layer utilities {

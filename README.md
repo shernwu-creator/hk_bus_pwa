@@ -2,9 +2,11 @@
 
 以 GPS 定位查詢香港 **九巴 (KMB)**、**城巴 (CTB)** 與 **專線小巴 (GMB)** 站點的 PWA：附近站點、路線搜尋、票價與最近三班車到站倒數，支援離線開啟（App Shell）與深色模式。
 
+首頁頂部是互動式地圖（Leaflet + CartoDB 圖磚，免 API Key、免計費），站點列表與地圖雙向聯動：附近站點一載入就預設展開最近一站並把地圖移過去；點列表中的站點會 `flyTo` 該站，點地圖圖釘則會展開並捲動到對應的站點卡片。
+
 站點內點選任一路線，會**另開視窗**顯示該方向的全線站序：自動標示你開啟時所在的站點並展開最近三班車，其他站點可逐一展開查看，也可一鍵**反轉方向**查另一邊的車。
 
-資料全部來自 [DATA.GOV.HK](https://data.gov.hk/) 的公開 API，本專案非官方產品。
+資料全部來自 [DATA.GOV.HK](https://data.gov.hk/) 的公開 API，本專案非官方產品；地圖圖磚由 [CARTO](https://carto.com/)（OpenStreetMap 資料）提供。
 開發規範（AI 代理必讀）見 [`AGENTS.md`](./AGENTS.md)：優先使用 CodeGraph 探索程式結構，禁止大範圍 grep 與讀檔。
 
 - 線上版本：<https://shernwu-creator.github.io/hk_bus_pwa/>（GitHub Pages，子路徑 `/hk_bus_pwa/`）
@@ -139,6 +141,7 @@ src/
 │  └─ RouteSequence.jsx      # 新視窗站序頁：全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊開新視窗看站序）
+│  ├─ StopMap.jsx            # 附近站點互動地圖（Leaflet + CartoDB 圖磚；主題自動切換、站點 flyTo 聯動）
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；傳入 stops 時以群組顯示代號 chip 與逐站移除）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用）
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單
@@ -269,6 +272,27 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - 標題右側星星＝**移除整個群組**（群組內所有站位一起取消收藏）；展開後「此群組站位」區塊中每個 chip
   右側的 X＝**只移除該站位**，其餘站位保持展開。
 
+### 6.7 附近站點互動地圖（Leaflet）
+
+首頁頂部的地圖刻意不用 Google Maps SDK（需要 API Key 與計費、載入較慢），改用 **Leaflet 1.9 + CartoDB 圖磚**：
+免 Key、免費額度足夠個人使用，且同時提供淺色（`light_all`）與深色（`dark_all`）底圖。
+
+- `src/components/StopMap.jsx` 以純 React `useRef` 直接封裝 Leaflet（不使用 `react-leaflet`，避免 React 19 的
+  peer dependency 衝突），並由 `Nearby.jsx` 以 `React.lazy` 動態載入；Leaflet 與圖磚 CSS 自成一包
+  （約 154 kB raw／46 kB gzip），不影響首屏定位與站點列表。
+- **主題連動**：圖磚依 `useTheme` 的 `isDark` 切換。由於頁首的 `useTheme` 是獨立 hook 實例，
+  `StopMap` 另外以 `MutationObserver` 監聽 `<html class="dark">`，在標題列切換主題時即時換底圖。
+- **標記**：使用者位置為藍點（外圈淡藍光暈）；附近站點為天藍色圓點圖釘，目前選中的站點換成琥珀色並顯示站名標籤。
+  圖釘只用 `divIcon`（inline style 畫圓點）而非 Leaflet 預設圖片，避免 bundler 找不到 `marker-icon.png`。
+- **預設展開第一站**：`Nearby` 在 `getNearbyStops()` 回來後以 `nearbyStops[0]` 設定展開狀態與地圖聚焦點，
+  地圖會 `flyTo` 到該站；同一時間只保留一個「選中」站點（可同時展開多張卡片，最近互動的那張為選中）。
+- **雙向聯動**：點列表站點 → 展開 ETA 並 `flyTo`；點地圖圖釘 → 展開該站（已展開則保持）並以
+  `scrollIntoView({ behavior: 'smooth', block: 'center' })` 捲到對應卡片。卡片 DOM 以 `ref` Map 依
+  `favoriteKey(stop)` 對應。
+- **輔助操作**：右上角「在 Google Maps 開啟此站」外部連結（Google Maps 內可再選街景／步行導航），
+  右下角「重新定位」按鈕；Leaflet 內建縮放鈕與版權列在深色模式另有配色（`src/index.css`）。
+- 圖磚由 Workbox `CacheFirst` 快取（見 7. PWA 設定），短時間離線仍能顯示看過的地圖區域。
+
 ---
 
 ## 7. PWA 設定
@@ -283,7 +307,8 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - 執行期快取（`CacheStorage` 以 origin 為單位共用，故全部加上 `hkbus-` 專屬前綴，避免與同 origin 的其他 PWA 專案互相覆蓋）：
   - `data.etabus.gov.hk`（九巴）、`rt.data.gov.hk`（城巴）、`data.etagmb.gov.hk`（小巴）→ `NetworkFirst`（8 秒逾時），
     快取名稱 `hkbus-kmb-api` / `hkbus-citybus-api` / `hkbus-gmb-api`，斷網時仍能看到最後一次資料；
-  - 自家 `/data/*.json` 索引 → `StaleWhileRevalidate`，快取名稱 `hkbus-static-data`。
+  - 自家 `/data/*.json` 索引 → `StaleWhileRevalidate`，快取名稱 `hkbus-static-data`；
+  - `*.basemaps.cartocdn.com`（Leaflet 圖磚）→ `CacheFirst`（7 天、最多 240 張），快取名稱 `hkbus-map-tiles`，短時間離線仍可看到看過的地圖區域。
 - 圖示：`public/pwa-192x192.png`、`pwa-512x512.png`、`pwa-maskable-512x512.png`、`apple-touch-icon.png`，皆由 `npm run generate:icons` 產生。
 - 驗證方式：`npm run build && npm run preview`，開啟 `http://localhost:4173/hk_bus_pwa/`，在 DevTools → Application 檢查 Manifest 與 Service Worker；`dist/404.html` 應存在。
 
@@ -300,6 +325,9 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - **靜態索引是快照**：新開辦的路線／新站點要重跑 `npm run sync:data` 才會出現（前端 IndexedDB 6 小時後也會重新抓取）；GitHub Actions 每週日 04:00（香港時間）自動同步並提交 `public/data/` 與 `src/data/`。
 - 小巴 ETA 只回傳 `route_id`，若靜態索引尚未收錄該路線，該班次會被略過（重跑 `sync:data` 即可）。
 - 票價為運輸署提供的**全程收費**，非分段收費；小巴無票價。
+- **地圖底圖需連線**：Leaflet 圖磚來自 CARTO 公開服務，第一次瀏覽某個區域時必須連線；`hkbus-map-tiles` 只快取看過的地圖，
+  離線時未快取區域會空白（站點清單與 ETA 快取仍然有效）。CARTO 免費方案有流量限制，個人使用足夠；Google Maps 按鈕只是外部連結，
+  沒有嵌入 SDK，也沒有即時路線導航。
 - 只支援九巴、城巴與專線小巴，未包含龍運、新大嶼山巴士、港鐵巴士與居民巴士。
 
 ---
@@ -344,4 +372,5 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | **同一路線出現兩個相同到站時間** | `src/services/api.js` 新增 `normalizeEtaList()`：ETA 先依實際到站時間排序，相鄰班次時間差 < 45 秒或 `HH:mm`＋剩餘分鐘相同時去重；合併月台時優先保留目標 `seq` 的班次，最近三班不再重複。 |
 | **站點名稱只有中文** | 站點資料層沿用 `nameEn`（KMB `name_en`；城巴／小巴靜態索引每筆第 3 欄）；`StopSection`／`RouteSequence` 在中文站名下方以 `text-[11px]` 顯示英文站名，`RouteStopsPanel` 標題補上英文起訖站，方便外籍人士查看。 |
 | **同一車站多個站位代號各自佔一個收藏區塊** | 顯示時以 `normalizeStopName()`（移除尾端 `(YT123)` 與「- 3號月台」後綴）把同名／座標 ≤ 100 公尺且站名高度相符（相似度 ≥ 0.95、一方包含另一方，或順序無關地完全相同）的收藏分組，同名但相距 > 500 公尺則分開；`hkb:favorites:v1` 格式完全不變。展開時合併群組各站位 ETA（同 `operator+route+direction+serviceType` 只留最近一班較早的卡片）並記住來源月台；標題星星移除整組，「此群組站位」chip 的 X 只移除該站位。 |
+| **首頁上方要有互動地圖，並與站點列表聯動** | 新增 `StopMap.jsx`：Leaflet 1.9 + CartoDB 淺色／深色圖磚（免 API Key），以 `React.lazy` 動態載入避免拖慢首屏；依 `useTheme`／`<html class="dark">` 即時換底圖。站點載入後預設展開 `nearbyStops[0]` 並 `flyTo`，點列表站點 → 地圖 `flyTo`，點圖釘 → 展開卡片並平滑捲動到該卡片；右上「在 Google Maps 開啟此站」（街景／步行導航）、右下重新定位；圖磚以 `hkbus-map-tiles` 的 `CacheFirst` 快取。 |
 

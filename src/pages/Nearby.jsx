@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LocateFixed, MapPin, RefreshCw, Star, TriangleAlert } from 'lucide-react'
 import StopSection from '../components/StopSection.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
@@ -7,6 +7,9 @@ import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLocation from '../hooks/useLocation.js'
 import { DEFAULT_RADIUS, getFareUpdatedAt, getNearbyStops } from '../services/api.js'
 import { formatClock, formatDateTime } from '../utils/format.js'
+
+/** Leaflet 只在地圖區塊需要，動態載入讓首屏（定位＋站點列表）不必等地圖程式碼 */
+const StopMap = lazy(() => import('../components/StopMap.jsx'))
 
 const RADIUS_OPTIONS = [
   { value: 300, label: '300 公尺' },
@@ -39,6 +42,25 @@ export default function Nearby() {
   // 可同時展開多個站點（打開下面站點時不會收起上面已打開的）
   const [expandedKeys, setExpandedKeys] = useState(() => new Set())
   const [reloadToken, setReloadToken] = useState(0)
+  // 地圖聚焦的站點（列表點擊 → 地圖 flyTo；地圖圖釘 → 展開卡片並捲動）
+  const [mapFocus, setMapFocus] = useState(null)
+  const [selectedKey, setSelectedKey] = useState(null)
+  const stopCardRefs = useRef(new Map())
+  const focusSeq = useRef(0)
+
+  // 地圖與列表共用「目前聚焦站點」；seq 讓同一站點可以重複觸發 flyTo
+  const focusStop = useCallback((stop, { scroll = false } = {}) => {
+    if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng)) return
+    const key = favoriteKey(stop)
+    focusSeq.current += 1
+    setSelectedKey(key)
+    setMapFocus({ key, lat: stop.lat, lng: stop.lng, seq: focusSeq.current })
+    if (scroll) {
+      window.requestAnimationFrame(() => {
+        stopCardRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+  }, [])
 
   const lat = coords?.lat
   const lng = coords?.lng
@@ -60,8 +82,9 @@ export default function Nearby() {
         setStops(list)
         setError(null)
         setLoadedRequestKey(requestKey)
-        // 預設展開最近（排序前）的站點
+        // 預設展開最近（排序前）的站點，並把地圖中心移到該站
         setExpandedKeys(new Set(list.length > 0 ? [favoriteKey(list[0])] : []))
+        if (list.length > 0) focusStop(list[0])
       })
       .catch((err) => {
         if (cancelled) return
@@ -73,7 +96,7 @@ export default function Nearby() {
     return () => {
       cancelled = true
     }
-  }, [requestKey, lat, lng, radius])
+  }, [requestKey, lat, lng, radius, focusStop])
 
   // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
   // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。
@@ -118,10 +141,53 @@ export default function Nearby() {
     refresh()
   }, [refresh])
 
+  // 列表點擊站點：切換展開；若是「展開」就同步把地圖飛到該站
+  const handleToggleStop = useCallback(
+    (stop) => {
+      const key = favoriteKey(stop)
+      if (!expandedKeys.has(key)) focusStop(stop)
+      setExpandedKeys((prev) => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    },
+    [expandedKeys, focusStop],
+  )
+
+  // 點擊地圖圖釘：展開該站（已展開則保持）並捲動到對應卡片
+  const handleSelectStop = useCallback(
+    (stop) => {
+      const key = favoriteKey(stop)
+      setExpandedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
+      focusStop(stop, { scroll: true })
+    },
+    [focusStop],
+  )
+
+  const mapCenter = useMemo(
+    () => (Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null),
+    [lat, lng],
+  )
+
   const isLocating = locationStatus === 'locating'
 
   return (
     <div className="space-y-3">
+      <Suspense fallback={<div className="skeleton h-52 w-full rounded-2xl" aria-hidden="true" />}>
+        <StopMap
+          center={mapCenter}
+          userLocation={mapCenter}
+          stops={stops}
+          selectedKey={selectedKey}
+          focus={mapFocus}
+          onSelectStop={handleSelectStop}
+          onLocate={locate}
+          locating={isLocating}
+        />
+      </Suspense>
+
       <section className="card p-3">
         <div className="flex items-start gap-2">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
@@ -223,24 +289,24 @@ export default function Nearby() {
             const isLoading = isExpanded && !groupsByKey.has(key)
 
             return (
-              <StopSection
+              <div
                 key={key}
-                group={group}
-                distance={stop.distance}
-                expanded={isExpanded}
-                onToggle={() =>
-                  setExpandedKeys((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(key)) next.delete(key)
-                    else next.add(key)
-                    return next
-                  })
-                }
-                isFavorite={favoriteKeys.has(key)}
-                onToggleFavorite={toggleFavorite}
-                loading={isLoading}
-                onRetry={refresh}
-              />
+                ref={(element) => {
+                  if (element) stopCardRefs.current.set(key, element)
+                  else stopCardRefs.current.delete(key)
+                }}
+              >
+                <StopSection
+                  group={group}
+                  distance={stop.distance}
+                  expanded={isExpanded}
+                  onToggle={() => handleToggleStop(stop)}
+                  isFavorite={favoriteKeys.has(key)}
+                  onToggleFavorite={toggleFavorite}
+                  loading={isLoading}
+                  onRetry={refresh}
+                />
+              </div>
             )
           })}
         </div>
