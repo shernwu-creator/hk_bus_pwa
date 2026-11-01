@@ -107,7 +107,59 @@ src/
 - 所有非同步資料載入要有 loading／error／empty 狀態（`StateViews.jsx`）。
 - 維持可存取性：按鈕用 `<button>`／`aria-*`、可點擊區域要有文字標籤。
 
-## 4. 完成工作的定義（DoD）
+## 4. AI 開發工作流（Matt Pocock 風格）
+
+> 參考 [mattpocock/skills](https://github.com/mattpocock/skills)：小步驟、快速回饋、保持設計清晰。
+> 每次任務都照下列迴圈走；本節與第 5 節 DoD 同屬完成條件，任一項沒做到就視同未完成。
+
+**任務迴圈**：定位（codegraph）→ 讀懂（component → hook → service）→ 小步修改 → `lint` ＋ `build` → 檢查 diff 是否最小 → 回報驗證結果。
+
+### 4.1 Context-First（先讀後寫）
+
+規則：修改任何邏輯前，必須先讀取相關的 component、hook 與 service 檔案，確認資料流與型別結構。
+
+- 用第 1 節的 codegraph 指令定位（`explore` → `node`／`callers`），再用 `read` 讀取命中的具體檔案，不要憑檔名猜測。
+- 動手前先回答三題：
+  1. **資料流**：畫面元件呼叫哪個 hook，hook 又呼叫 `services/api.js` 的哪個函式？
+  2. **型別結構**：回傳物件有哪些欄位、哪些可能為 `null` 或空陣列？
+  3. **影響範圍**：`codegraph callers`／`impact` 顯示誰在用這個函式？簽名一改會不會壞掉其他頁？
+- 讀完才動手；**不准「先改再回頭看」**，也不准在未確認資料形狀前改 `services/api.js` 的函式簽名或回傳結構。
+
+### 4.2 Atomic Changes（原子化修改）
+
+規則：一次只專注解決一個任務，不順手重構無關的程式碼，保持最小 diff。
+
+- 一次修改只對應一個目的；途中發現的相鄰 bug、可改的命名、想抽的共用函式，**先記下來另開任務**，不要塞進本次 diff。
+- 不改與任務無關的排版、import 順序、文案；不要讓格式化工具順手改動整檔。
+- 先做最小可運作切片（tracer bullet），端到端通了再擴充；不要一次改五個檔案再一起除錯。
+- 送出前看一次 `git diff`：每一行都要能說明「為何而改」，說不出來的就還原。
+
+### 4.3 Verification Loop（強制驗證迴圈）
+
+規則：每次完成程式碼修改後，必須自動執行 `npm run lint`（oxlint）與 `npm run build`，確保零警告、零錯誤且打包成功後，才算完成任務。
+
+```bash
+npm run lint && npm run build
+```
+
+- 任一失敗就立即修正並重跑，直到兩者都乾淨；不可把紅燈留給下一個人。
+- 零警告是真的零警告：warning 也要清掉，不要用 disable 註解把問題藏起來。
+- 只改文件（`*.md`）或純資料時，至少跑 `npm run lint`；一旦動到 `vite.config.js`、`tailwind.config.js`、`index.html`、`public/` 等會影響打包的檔案，`lint` 與 `build` 兩者都要跑。
+- 有行為變更要附驗證方式（例如 `npm run preview` 掛在 `/hk_bus_pwa/` 子路徑、實際操作步驟、預期結果），不要只說「應該可以」。
+
+### 4.4 Backward Compatibility（向下相容）
+
+規則：修改 `localStorage` 相關邏輯（如收藏、主題）時，必須相容舊有已儲存的資料格式。
+
+- 現有 key（改資料格式時**不可直接換 key 或覆寫舊資料**）：
+  - 收藏：`hkb:favorites:v1`（`src/hooks/useFavorites.js`）
+  - 主題：`hkb:theme`（`src/hooks/useTheme.js`，只接受 `'dark'`／`'light'`）
+- 舊資料可能缺欄位（例如沒有 `savedAt`、`routes`、`siblingIds`）：讀取時補預設值或逐筆過濾，不可因一筆壞資料就清空全部收藏。
+- 解析失敗（JSON 壞掉、不是陣列、值不在允許範圍）要退回預設值繼續運作，不要 `throw`。
+- 真要改格式，流程是「讀舊格式 → 轉換 → 寫回新格式」，保留至少一版遷移路徑，並在 `README.md` 記錄 key 與格式。
+- 跨分頁的 `storage` 事件也走同一套讀取邏輯，確保舊分頁寫入的舊格式不會被新分頁當成垃圾丟掉。
+
+## 5. 完成工作的定義（DoD）
 
 1. 改動範圍內 `npm run lint` 無錯誤；`npm run build` 成功。
 2. 行為變更同步更新 `README.md`（資料流、程式結構、已知限制等章節）。
