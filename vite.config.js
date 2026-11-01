@@ -144,8 +144,9 @@ export default defineConfig(({ command, isPreview }) => {
               },
             },
             {
-              // Leaflet 地圖圖磚（CartoDB）：CacheFirst，重複瀏覽／短暫離線時不用重新下載
-              urlPattern: ({ url }) => url.hostname.endsWith('.basemaps.cartocdn.com'),
+              // OpenStreetMap 圖磚：只快取使用者正常瀏覽過的圖磚（不快取／預抓範圍），
+              // CacheFirst 7 天 TTL 符合 OSM Tile Usage Policy 的本機快取要求
+              urlPattern: ({ url }) => url.hostname === 'tile.openstreetmap.org',
               handler: 'CacheFirst',
               options: {
                 cacheName: `${CACHE_PREFIX}map-tiles`,

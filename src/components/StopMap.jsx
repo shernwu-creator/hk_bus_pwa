@@ -6,17 +6,13 @@ import useTheme from '../hooks/useTheme.js'
 import { favoriteKey } from '../hooks/useFavorites.js'
 
 /**
- * CartoDB 圖磚：免費、免 API Key，且同時提供淺色／深色底圖，
- * 不必載入體積較大的 Google Maps SDK。
+ * 官方 OpenStreetMap 圖磚：免費、免 API Key（不再使用會顯示 API KEY REQUIRED 浮水印的 CartoDB）。
+ * OSM 只有淺色圖磚，深色模式另外以 CSS filter 反轉（見 index.css 的 .map-tiles-dark）。
  */
-const TILE_URL = {
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-}
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 const ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> ' +
-  '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>'
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
 
 /** 尚未取得定位時的預設視角（維多利亞港兩岸） */
 const DEFAULT_CENTER = { lat: 22.3027, lng: 114.1772 }
@@ -72,8 +68,8 @@ function useIsDark() {
 }
 
 /**
- * 附近站點互動地圖（Leaflet + CartoDB）
- * - 底圖跟隨深淺色主題自動切換，免 API Key。
+ * 附近站點互動地圖（Leaflet + OpenStreetMap）
+ * - 底圖跟隨深淺色主題：淺色用官方 OSM 圖磚，深色以 CSS filter 反轉，免 API Key。
  * - 藍點為使用者目前位置；附近站點以圖釘標示，選中的站點為琥珀色並顯示站名。
  * - 點擊圖釘會呼叫 `onSelectStop(stop)`，由 Nearby 展開站點卡片並捲動到該卡片。
  * - 右上角「在 Google Maps 開啟此站」為外部輔助（街景／步行導航），右下角為重新定位。
@@ -125,15 +121,14 @@ export default function StopMap({
     }
   }, [])
 
-  // 淺色／深色圖磚：主題改變時整層換掉
+  // OSM 只有淺色圖磚；深色模式加 .map-tiles-dark 以 CSS filter 反轉，主題改變時整層換掉
   useEffect(() => {
     const map = mapRef.current
     if (!map) return undefined
-    const tiles = L.tileLayer(isDark ? TILE_URL.dark : TILE_URL.light, {
+    const tiles = L.tileLayer(TILE_URL, {
       attribution: ATTRIBUTION,
-      subdomains: 'abcd',
-      maxZoom: 20,
-      detectRetina: true,
+      maxZoom: 19,
+      className: isDark ? 'map-tiles-dark' : '',
     })
     tiles.addTo(map)
     return () => {
