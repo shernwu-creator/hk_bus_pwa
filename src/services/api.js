@@ -556,6 +556,152 @@ export async function getRouteStops({ operator, route, direction = 'outbound', s
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* 路線卡排序：剩餘距離                                                 */
+/* ------------------------------------------------------------------ */
+
+/** 計算剩餘距離時，最多同時抓幾條路線的站序（避免一次打爆官方 API） */
+const ROUTE_PROGRESS_CONCURRENCY = 6
+/** 單一條路線站序最多等多久（毫秒）；逾時就少了該卡的剩餘距離，退回以到站時間排序 */
+const ROUTE_PROGRESS_TIMEOUT = 6000
+/** 整批剩餘距離最多算多久（毫秒）；繁忙站點（例如城巴一站 25 條路線）不要無限拖下去 */
+const ROUTE_PROGRESS_TOTAL_TIMEOUT = 8000
+
+/**
+ * 路線站序快取（含座標）：剩餘距離排序需要「目前站序 → 路線終點」的完整站序。
+ * 站序不常變動，同一次瀏覽工作階段只抓一次；30 秒 ETA 輪詢時可直接重用。
+ */
+const routeStopsCache = new Map()
+
+function withTimeout(promise, timeout) {
+  let timer = null
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new ApiError('讀取路線站序逾時')), timeout)
+    promise.then(resolve, reject)
+  }).finally(() => clearTimeout(timer))
+}
+
+/** 取得某路線卡的站序（快取；失敗回傳 null，讓路線卡退回以到站時間排序） */
+function getCachedRouteStops(entry) {
+  const key =
+    entry.operator === 'GMB'
+      ? `GMB|${entry.routeId}|${entry.routeSeq}`
+      : `${entry.operator}|${entry.route}|${entry.direction}|${entry.serviceType}`
+  if (!routeStopsCache.has(key)) {
+    const pending = withTimeout(
+      getRouteStops({
+        operator: entry.operator,
+        route: entry.route,
+        direction: entry.direction,
+        serviceType: entry.serviceType,
+        routeId: entry.routeId,
+        routeSeq: entry.routeSeq,
+      }),
+      ROUTE_PROGRESS_TIMEOUT,
+    ).catch((error) => {
+      // 失敗不留在快取，讓下一次輪詢有機會重試
+      routeStopsCache.delete(key)
+      console.warn(`[api] 路線 ${entry.route} 站序讀取失敗，改以到站時間排序：${error.message}`)
+      return null
+    })
+    routeStopsCache.set(key, pending)
+  }
+  return routeStopsCache.get(key)
+}
+
+/**
+ * 計算路線卡在「目前站點」的剩餘站數／剩餘距離（公尺），供路線卡由長途到短途排序。
+ * - 以 ETA 的 `stopSeq` 對應 route-stop 的 `seq`；循環線同一站名會出現兩次，必須用站序分辨
+ * - 找不到站序時退回以站點 id 比對（月台合併時 ETA 可能來自其他站牌）
+ * - 回傳 null 代表資料不足，呼叫端維持原本的到站時間排序
+ * @returns {Promise<{remainingStops:number, remainingDistance:number|null, isTerminus:boolean}|null>}
+ */
+async function getRouteProgress(entry, stop) {
+  const stopSeq = entry.etas?.find((eta) => Number.isFinite(eta.stopSeq))?.stopSeq
+  if (!Number.isFinite(stopSeq)) return null
+
+  const stops = await getCachedRouteStops(entry)
+  if (!Array.isArray(stops) || stops.length === 0) return null
+
+  let index = stops.findIndex((row) => Number(row.seq) === Number(stopSeq))
+  if (index < 0 && stop?.id != null) {
+    index = stops.findIndex((row) => String(row.id) === String(stop.id))
+  }
+  if (index < 0) return null
+
+  const remainingStops = stops.length - 1 - index
+
+  // 沿線站距加總；任何一段缺座標就退回「剩餘站數」作為排序依據
+  let remainingDistance = 0
+  for (let i = index; i < stops.length - 1; i += 1) {
+    const from = stops[i]
+    const to = stops[i + 1]
+    const hasCoords =
+      Number.isFinite(from?.lat) &&
+      Number.isFinite(from?.lng) &&
+      Number.isFinite(to?.lat) &&
+      Number.isFinite(to?.lng)
+    if (!hasCoords) {
+      remainingDistance = null
+      break
+    }
+    remainingDistance += distanceInMeters(from, to)
+  }
+
+  return {
+    remainingStops,
+    remainingDistance: Number.isFinite(remainingDistance) ? Math.round(remainingDistance) : null,
+    isTerminus: remainingStops === 0,
+  }
+}
+
+/**
+ * 為一批「站點 ETA 群組」補上各路線的剩餘距離進度（供 StopSection 排序）。
+ *
+ * 這個函式會抓取各路線的站序，慢的時候可能要好幾秒；`useBusData` 先顯示 ETA、
+ * 再於背景呼叫本函式補上 progress，避免展開站點時卡在 loading。
+ * 個別路線讀取失敗或逾時只會少了該卡的 progress，不影響 ETA 顯示。
+ *
+ * @param {Array<{stop:object, routes:Array}>} groups
+ * @returns {Promise<Array>} 與輸入同形狀（routes 內的 entry 可能多了 progress 欄位）
+ */
+export async function attachRouteProgress(groups) {
+  const entries = []
+  for (const group of groups) {
+    for (const entry of group.routes ?? []) entries.push({ group, entry })
+  }
+  if (entries.length === 0) return groups
+
+  const progressByEntry = new Map()
+  let timer = null
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(resolve, ROUTE_PROGRESS_TOTAL_TIMEOUT)
+  })
+  try {
+    await Promise.race([
+      mapWithConcurrency(entries, ROUTE_PROGRESS_CONCURRENCY, async ({ group, entry }) => {
+        try {
+          const progress = await getRouteProgress(entry, group.stop)
+          if (progress) progressByEntry.set(entry, progress)
+        } catch (error) {
+          console.warn(`[api] 計算路線 ${entry.route} 剩餘距離失敗，改以到站時間排序：${error.message}`)
+        }
+      }),
+      timeout,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+
+  return groups.map((group) => ({
+    ...group,
+    routes: (group.routes ?? []).map((entry) => {
+      const progress = progressByEntry.get(entry)
+      return progress ? { ...entry, progress } : entry
+    }),
+  }))
+}
+
 async function getStopMap(operator) {
   if (operator === 'CTB' || operator === 'GMB') {
     try {

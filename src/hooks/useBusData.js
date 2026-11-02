@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { filterByRoute, getStopEtas } from '../services/api.js'
+import { attachRouteProgress, filterByRoute, getStopEtas } from '../services/api.js'
 
 /** ETA 輪詢間隔：官方資料約每 30 秒更新一次 */
 export const REFRESH_INTERVAL = 30000
@@ -79,6 +79,21 @@ export default function useBusData(stopRefs = [], options = {}) {
           error: allFailed ? '暫時無法取得到站資料，請稍後再試' : null,
           updatedAt: Date.now(),
         })
+
+        // 路線卡排序要用「本站到路線終點」的剩餘距離。站序請求較慢，先顯示 ETA 再於背景補上，
+        // 補到後只重排一次；作業期間若重新整理／切換站點（groups 參照改變）就忽略舊結果。
+        // 個別路線讀取失敗時少了 progress，由 StopSection 退回以到站時間排序（詳見 sortRoutes）。
+        attachRouteProgress(groups)
+          .then((groupsWithProgress) => {
+            if (cancelled) return
+            setState((prev) =>
+              prev.groups === groups ? { ...prev, groups: groupsWithProgress } : prev,
+            )
+          })
+          .catch((error) => {
+            // attachRouteProgress 已逐條處理失敗；這裡保底避免 unhandled rejection
+            console.warn('[useBusData] 補上剩餘距離失敗，維持以到站時間排序', error)
+          })
       } finally {
         inFlight = false
         // 請求完成時若已切到背景，scheduleNext 會直接跳過，不再背景下繼續輪詢

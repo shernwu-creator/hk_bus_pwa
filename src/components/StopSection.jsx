@@ -7,15 +7,7 @@ import { TravelPlanChips } from './TravelPlan.jsx'
 import { favoriteKey } from '../hooks/useFavorites.js'
 import { formatDistance, stopPlatformCode } from '../utils/format.js'
 import { openRouteSequence } from '../utils/routeLinks.js'
-
-function sortByArrival(routes) {
-  return [...routes].sort((a, b) => {
-    const aMinutes = a.nextMinutes ?? Number.POSITIVE_INFINITY
-    const bMinutes = b.nextMinutes ?? Number.POSITIVE_INFINITY
-    if (aMinutes !== bMinutes) return aMinutes - bMinutes
-    return a.route.localeCompare(b.route, 'en', { numeric: true })
-  })
-}
+import { sortRoutes } from '../utils/routeOrder.js'
 
 /** 路線卡片的識別 key（同一路線可能有不同方向／目的地／服務類型） */
 function routeEntryKey(entry) {
@@ -61,7 +53,7 @@ export default function StopSection({
   planBaseLabel = null,
 }) {
   const [showAll, setShowAll] = useState(false)
-  const sortedRoutes = useMemo(() => sortByArrival(group?.routes ?? []), [group?.routes])
+  const sortedRoutes = useMemo(() => sortRoutes(group?.routes ?? []), [group?.routes])
   // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
   // 卡片要加上「往 X」標示並以顏色區隔；只有一個目的地時維持原本簡潔的 UI。
   const destinationsByRoute = useMemo(() => {
