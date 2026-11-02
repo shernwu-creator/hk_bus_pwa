@@ -106,38 +106,52 @@ export default function RouteStopsPanel({
 
   return (
     <section className="space-y-2">
-      <div className="card flex items-start gap-2 p-2.5">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回路線搜尋"
-          className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5">
-            <span className="text-lg font-extrabold leading-none text-slate-900 dark:text-white">
-              {selected.route}
-            </span>
-            <OperatorBadge operator={selected.operator} />
-            <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              {selected.direction === 'inbound' ? '回程' : '去程'}
-            </span>
-          </p>
-          <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
-            <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">
-              {selected.orig} → {selected.destination}
-            </span>
-            {status === 'ready' && <span className="shrink-0">· {stops.length} 站</span>}
-          </p>
-          {selected.origEn && selected.destinationEn && (
-            <p className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
-              {selected.origEn} → {selected.destinationEn}
+      {/* 返回列（路線資訊）與推算切換鈕固定在 Header 下方：站序很長時不管滑到哪裡，
+          都能隨時返回路線清單或開關「推算各站到站時間」，與首頁 sticky Header 同一套邏輯。
+          負 margin 抵銷 main 的 padding，讓背景色貼齊左右邊緣、內容從下面滑過。 */}
+      <div className="sticky top-[var(--app-header-h)] z-10 -mx-3 -mt-3 space-y-2 border-b border-slate-200/70 bg-slate-50/90 px-3 pb-2 pt-3 backdrop-blur-lg dark:border-slate-800/80 dark:bg-slate-950/85">
+        <div className="card flex items-start gap-2 p-2.5">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="返回路線搜尋"
+            className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5">
+              <span className="text-lg font-extrabold leading-none text-slate-900 dark:text-white">
+                {selected.route}
+              </span>
+              <OperatorBadge operator={selected.operator} />
+              <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {selected.direction === 'inbound' ? '回程' : '去程'}
+              </span>
             </p>
-          )}
+            <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+              <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {selected.orig} → {selected.destination}
+              </span>
+              {status === 'ready' && <span className="shrink-0">· {stops.length} 站</span>}
+            </p>
+            {selected.origEn && selected.destinationEn && (
+              <p className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                {selected.origEn} → {selected.destinationEn}
+              </p>
+            )}
+          </div>
         </div>
+
+        {status === 'ready' && stops.length > 0 && (
+          <div className="flex justify-end px-1">
+            <TravelPlanToggle
+              active={planEnabled}
+              onClick={() => setPlanEnabled((current) => !current)}
+            />
+          </div>
+        )}
       </div>
 
       {status === 'loading' && <StopSkeleton rows={4} />}
@@ -150,13 +164,6 @@ export default function RouteStopsPanel({
 
       {status === 'ready' && stops.length > 0 && (
         <>
-          <div className="flex justify-end px-1">
-            <TravelPlanToggle
-              active={planEnabled}
-              onClick={() => setPlanEnabled((current) => !current)}
-            />
-          </div>
-
           {planEnabled && travelPlan && (
             <TravelPlanBanner plan={travelPlan} baseLoading={planBaseLoading} />
           )}

@@ -5,6 +5,10 @@
 @layer base {
   :root {
     color-scheme: light;
+    /* 主殼 Header 的實際高度：App.jsx 量測後以 JS 覆寫成實際 px，
+       頁面內的 sticky 工具列（搜尋頁站序的返回列／推算切換鈕）靠它貼齊 Header 下緣。
+       這裡的預設值（py-2.5 × 2 ＋ 36px 圖示 ＋ 1px 邊框）只是量測前的後備。 */
+    --app-header-h: calc(3.5rem + 1px);
   }
 
   .dark {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, MapPin } from 'lucide-react'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import RouteStopsPanel from '../components/RouteStopsPanel.jsx'
@@ -42,6 +42,8 @@ export default function Search() {
   const [stopsReloadToken, setStopsReloadToken] = useState(0)
   // 可同時展開多個站點，打開下面的站不會收起上面的
   const [expandedIds, setExpandedIds] = useState(() => new Set())
+  // 開啟站序面板前的路線清單捲動位置：返回清單時還原，站序滑到深處按「返回」才不會跳到別處
+  const resultsScrollRef = useRef(0)
 
   const keyword = query.trim().toUpperCase()
   const stopsRequestKey = selected ? `${routeKey(selected)}|${stopsReloadToken}` : null
@@ -146,11 +148,20 @@ export default function Search() {
 
   // 選擇路線（事件處理器內重置站序狀態，讓面板立即回到 loading）
   const chooseRoute = useCallback((row) => {
+    // 記住清單的捲動位置，並把畫面帶回頂端，站序面板一打開就從第一站開始看
+    resultsScrollRef.current = window.scrollY
     setSelected(row)
     setStops([])
     setStopsError(null)
     setLoadedStopsKey(null)
     setExpandedIds(new Set())
+    window.scrollTo({ top: 0 })
+  }, [])
+
+  // 返回路線清單：等清單重新渲染後還原原本的捲動位置
+  const backToResults = useCallback(() => {
+    setSelected(null)
+    window.requestAnimationFrame(() => window.scrollTo({ top: resultsScrollRef.current }))
   }, [])
 
   const retryStops = useCallback(() => {
@@ -168,7 +179,7 @@ export default function Search() {
         etaGroupsByKey={etaGroupsByKey}
         expandedIds={expandedIds}
         onToggleStop={toggleStop}
-        onBack={() => setSelected(null)}
+        onBack={backToResults}
         isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
         onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
         onRetry={retryStops}

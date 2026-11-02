@@ -132,7 +132,7 @@ npm run sync:data
 ```
 src/
 ├─ main.jsx                  # 掛載 App、註冊 Service Worker（vite-plugin-pwa）
-├─ App.jsx                   # Router（basename 跟隨 BASE_URL）＋版面；頁面以 React.lazy 分 chunk
+├─ App.jsx                   # Router（basename 跟隨 BASE_URL）＋版面；頁面以 React.lazy 分 chunk；Header 高度寫入 --app-header-h 供頁內 sticky 工具列使用
 ├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip）
 ├─ pages/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
@@ -145,7 +145,7 @@ src/
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
-│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單
+│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header 下方）
 │  ├─ SearchBar.jsx / OperatorBadge.jsx / BottomNav.jsx
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
 ├─ hooks/
@@ -290,6 +290,10 @@ scripts/
   （`EtaSlot` 在推算模式下才變成按鈕）。基準站列顯示「推算基準」chip，其後每一站顯示 `+X 分` 與 `HH:mm 到達`。
 - **搜尋頁站序面板**：以「已展開且取得實時 ETA 的最前面站點」為基準（都沒有時退回第一站做純車程推算）；
   `useBusData()` 的 `updatedAt` 會傳入面板，用來判斷 ETA 是否新鮮（不使用已過期的背景資料）。
+  路線資訊列（含「返回路線搜尋」）與「推算各站到站時間」切換鈕會 **sticky 固定在主殼 Header 下方**
+  （`top-[var(--app-header-h)]`；Header 高度由 `App.jsx` 量測後寫入 CSS 變數），站序很長時不論滑到哪裡
+  都能隨時返回或開關推算，與首頁 sticky Header 同一套邏輯。開啟面板時畫面捲回頂端，返回清單時還原
+  原本的路線清單捲動位置。
 - 推算結果只是**估算**（路況、站距、燈位、上落客都會影響），UI 一律以「推算／約」呈現，不代表官方承諾。
 
 ### 6.7 收藏站點分組
@@ -466,4 +470,5 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | **參考 App 1933：以目前班次推算後續各站的到達時間** | 新增 `src/utils/travelPlan.js`：以直線距離 × 1.3 繞行係數、19 km/h 平均車速與每站 35 秒停靠累加出「到第 N 站的累計車程」，再以已展開站點的實時 ETA 校準（以「錨點後最早出現、且不晚於幾何預測＋容許誤差 4～15 分鐘」的班次推測為同一班車，採用後以該站為新錨點），最後顯示 `HH:mm` 預計到達；無實時班次時只顯示 `+X 分鐘車程`。UI 為 `src/components/TravelPlan.jsx`（切換鈕／基準說明列／膠囊），`EtaSlots` 新增 `selectable`／`selected`，可在站序頁點 ETA 格切換推算基準班次；`RouteSequence` 與 `RouteStopsPanel`（搜尋頁站序）皆可使用。 |
 | **同一站點同路線不同目的地混在同一張卡（例如 26M 順天總站：去程往觀塘、回程往彩虹）** | `groupEtaRows()` 的 key 由「路線\|方向」改為「路線\|方向\|目的地」（`destinationKey()` 忽略尾端「(循環線)」寫法差異），不同目的地分成不同卡片；`mergeEtaGroups()` 同步把目的地納入合併 key。九巴循環線（`dest_tc` 含「循環」）合併同名月台後，新增 `splitCircularPasses()` 以 ETA `stopSeq` 拆出去程／回程：只有「同一個 service_type、恰好兩個站序、`/route-stop` 驗證兩站位於路線前半／後半且相距 ≥ 1/3 條路線」才拆（兩個路線資料請求皆有記憶體快取），回程改以 `orig_tc` 標示；避免特別班次站序偏移與末段折返造成誤拆。`StopSection` 只在同站同路線有多個目的地時傳 `destinationVariant`，`BusCard`／`EtaSlots` 顯示彩色「往 X」chip 並以同色調為路線號碼框與 ETA 格上色；單一目的地維持原 UI。`routeEntryKey()`（`StopSection`／`Favorites`）與站序頁 `useStopEtas` 的群組選取同步加入了目的地與 `stopSeq` 比對，避免重複 key、選錯方向；循環線回程卡的站序頁連結仍用官方終點（`routeDestination`）。九巴改為「先收集原始班次 → 合併月台 → 拆分 → 合併重複目的地 → 最後才取三班」，同一站牌兩次經過不會被提前截斷；`findSiblingStopIds()` 讓站序頁只在同名站重複出現時才合併月台查詢，非來源站也能標示正確方向；色調順序改依目的地字串固定，30 秒更新不會換色。 |
 | **車站路線卡要「長途方向優先、終點站最後」** | 新增 `src/utils/routeOrder.js` 的 `sortRoutes()`：依「本站到路線終點」剩餘距離由長到短排序，終點站最後，同距離再依到站時間／路線號碼；`src/services/api.js` 新增 `attachRouteProgress()`（以 ETA 站序對應 `/route-stop` 站序、沿線 Haversine 加總，站序快取＋最多 6 條併發、單條 6 秒／整批 8 秒逾時），`useBusData` 先顯示 ETA、背景補上 `progress` 後重排一次，`StopSection` 改用 `sortRoutes()`，附近／搜尋／收藏頁共用；沒有到站時間（已過終班）的路線一律排最後，不影響其他排序規則。 |
+| **搜尋車號搜出站序後，往下滑就找不到「返回」與「推算各站到站時間」** | `RouteStopsPanel` 把「路線資訊＋返回按鈕」與「推算切換鈕」包成 sticky 工具列（`top-[var(--app-header-h)]`、`z-10`、半透明背景＋backdrop blur），貼在主殼 sticky Header 下緣，長站序滑到任何位置都能直接返回或開關推算；Header 高度由 `App.jsx` 以 `ResizeObserver` 量測後寫入 `--app-header-h`（`index.css` 有量測前的後備值），改 Header 版面不必同步改其他頁。`Search` 開啟站序面板時捲回頂端，返回清單時（`requestAnimationFrame` 後）還原原本的捲動位置。 |
 

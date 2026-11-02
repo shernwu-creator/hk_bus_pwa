@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { BusFront, Moon, Sun } from 'lucide-react'
 import BottomNav from './components/BottomNav.jsx'
@@ -43,9 +43,31 @@ function RouteWindowFallback() {
 
 function Header() {
   const { isDark, toggleTheme } = useTheme()
+  const headerRef = useRef(null)
+
+  // 把 Header 的實際高度寫進 CSS 變數 --app-header-h：頁面內的 sticky 工具列（例如搜尋頁站序的
+  // 返回列）才能貼在 Header 下緣而不被蓋住。以量測取代硬編碼 px，日後改 Header 版面不必同步改其他頁。
+  useEffect(() => {
+    const element = headerRef.current
+    if (!element) return undefined
+    const sync = () => {
+      document.documentElement.style.setProperty('--app-header-h', `${element.offsetHeight}px`)
+    }
+    sync()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', sync)
+      return () => window.removeEventListener('resize', sync)
+    }
+    const observer = new ResizeObserver(sync)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/85 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/80">
+    <header
+      ref={headerRef}
+      className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/85 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/80"
+    >
       <div className="mx-auto flex max-w-md items-center gap-2 px-3 py-2.5">
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900">
           <BusFront className="h-5 w-5" aria-hidden="true" />
