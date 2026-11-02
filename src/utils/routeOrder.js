@@ -3,10 +3,11 @@
  * ------------------------------------------------------------------
  * 除了「最近一班到站時間」之外，再以「本站到路線終點的剩餘距離」排序：
  *
- *   1. 長途方向優先：剩餘距離（公尺）由長到短
- *   2. 短途方向排後面：最後一站或倒數幾站的車自然排在長途之後
- *   3. 終點站最後：本站就是該路線的終點時，一律排最後
- *   4. 同距離時再依最近一班到站時間、路線號碼排序；缺座標時改用剩餘站數比較
+ *   1. 沒有到站時間（已過終班）的路線一律排最後，不論剩餘距離長短
+ *   2. 終點站最後：本站就是該路線的終點時，排在「有到站時間」路線的最後面
+ *   3. 長途方向優先：剩餘距離（公尺）由長到短
+ *   4. 短途方向排後面：最後一站或倒數幾站的車自然排在長途之後
+ *   5. 同距離時再依最近一班到站時間、路線號碼排序；缺座標時改用剩餘站數比較
  *
  * `entry.progress` 由 services/api.js 的 attachRouteProgress() 預先計算：
  * `{ remainingStops, remainingDistance, isTerminus }`；讀取失敗或逾時的路線沒有 progress，
@@ -21,12 +22,17 @@ function sortByArrival(a, b) {
 }
 
 /**
- * 依剩餘距離排序路線卡（長途優先、終點站最後）。
+ * 依剩餘距離排序路線卡（長途優先、終點站最後、沒有到站時間最後）。
  * @param {Array<{route:string, nextMinutes?:number|null, progress?:{remainingStops:number, remainingDistance:number|null, isTerminus:boolean}}>} routes
  * @returns {Array} 排序後的新陣列（不改動傳入的陣列）
  */
 export function sortRoutes(routes) {
   return [...routes].sort((a, b) => {
+    // 沒有到站時間（已過終班、nextMinutes 為 null／undefined）一律排最後
+    const aHasEta = Number.isFinite(a.nextMinutes)
+    const bHasEta = Number.isFinite(b.nextMinutes)
+    if (aHasEta !== bHasEta) return aHasEta ? -1 : 1
+
     const aProgress = a.progress
     const bProgress = b.progress
     // 終點站（本站即路線終點）一律最後

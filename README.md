@@ -142,7 +142,7 @@ src/
 ├─ components/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊開新視窗看站序）
 │  ├─ StopMap.jsx            # 附近站點互動地圖（Leaflet + OpenStreetMap 圖磚；深色以 CSS filter 轉換、站點 flyTo 聯動）
-│  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站最後）
+│  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單
@@ -352,9 +352,10 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 
 站點卡片內的各路線，除了到站時間，還會依「本站到該路線終點」的剩餘距離排序：
 
-1. **長途方向優先**：剩餘距離（沿線站距 Haversine 加總）由長到短；最後一站或倒數幾站的方向自然排在後面。
-2. **終點站最後**：本站就是該方向的終點時，該路線卡一律排最後（不需要再搭）。
-3. 同距離時再依最近一班到站時間、路線號碼排序；有 `progress` 但缺座標（算不出實際距離）時改以剩餘站數比較；完全沒有 `progress`（站序讀取失敗或逾時）則退回以到站時間排序，並排在「有 progress 的路線」之後、「終點站」之前。
+1. **沒有到站時間一律最後**：`nextMinutes` 為 `null`（已過終班／沒有可顯示班次）的路線，不論剩餘距離長短都排到最後；30 秒 ETA 輪詢後若有新班次，會自動回到正常位置。
+2. **長途方向優先**：剩餘距離（沿線站距 Haversine 加總）由長到短；最後一站或倒數幾站的方向自然排在後面。
+3. **終點站最後**：本站就是該方向的終點時，該路線卡排在「有到站時間」路線的最後面（沒有到站時間的路線仍然更後面）。
+4. 同距離時再依最近一班到站時間、路線號碼排序；有 `progress` 但缺座標（算不出實際距離）時改以剩餘站數比較；完全沒有 `progress`（站序讀取失敗或逾時）則退回以到站時間排序，並排在「有 progress 的路線」之後、「終點站」之前。
 
 計算方式：以 ETA 的站序（KMB／CTB 為 `seq`、GMB 為 `stop_seq`）對應 `getRouteStops()` 回傳的站序，
 取「目前站序 → 路線終點」逐段 Haversine 加總；循環線同一站名會出現兩次，必須用站序分辨。
@@ -464,5 +465,5 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | **CartoDB 圖磚被換成「API KEY REQUIRED」浮水印** | CartoDB 圖磚 HTTP 仍回 200，但內容已變成要求 API Key 的浮水印圖（只檢查狀態碼不會發現）。改用官方 OSM `https://tile.openstreetmap.org/{z}/{x}/{y}.png` 與標準 `© OpenStreetMap contributors` 版權標示；深色模式不再依賴 `dark_all`，改在 tile layer 加上 `.map-tiles-dark`，以 `filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)` 反轉，維持免 API Key；SW 圖磚快取改為只快取 `tile.openstreetmap.org` 正常瀏覽過的圖磚（7 天 TTL）。 |
 | **參考 App 1933：以目前班次推算後續各站的到達時間** | 新增 `src/utils/travelPlan.js`：以直線距離 × 1.3 繞行係數、19 km/h 平均車速與每站 35 秒停靠累加出「到第 N 站的累計車程」，再以已展開站點的實時 ETA 校準（以「錨點後最早出現、且不晚於幾何預測＋容許誤差 4～15 分鐘」的班次推測為同一班車，採用後以該站為新錨點），最後顯示 `HH:mm` 預計到達；無實時班次時只顯示 `+X 分鐘車程`。UI 為 `src/components/TravelPlan.jsx`（切換鈕／基準說明列／膠囊），`EtaSlots` 新增 `selectable`／`selected`，可在站序頁點 ETA 格切換推算基準班次；`RouteSequence` 與 `RouteStopsPanel`（搜尋頁站序）皆可使用。 |
 | **同一站點同路線不同目的地混在同一張卡（例如 26M 順天總站：去程往觀塘、回程往彩虹）** | `groupEtaRows()` 的 key 由「路線\|方向」改為「路線\|方向\|目的地」（`destinationKey()` 忽略尾端「(循環線)」寫法差異），不同目的地分成不同卡片；`mergeEtaGroups()` 同步把目的地納入合併 key。九巴循環線（`dest_tc` 含「循環」）合併同名月台後，新增 `splitCircularPasses()` 以 ETA `stopSeq` 拆出去程／回程：只有「同一個 service_type、恰好兩個站序、`/route-stop` 驗證兩站位於路線前半／後半且相距 ≥ 1/3 條路線」才拆（兩個路線資料請求皆有記憶體快取），回程改以 `orig_tc` 標示；避免特別班次站序偏移與末段折返造成誤拆。`StopSection` 只在同站同路線有多個目的地時傳 `destinationVariant`，`BusCard`／`EtaSlots` 顯示彩色「往 X」chip 並以同色調為路線號碼框與 ETA 格上色；單一目的地維持原 UI。`routeEntryKey()`（`StopSection`／`Favorites`）與站序頁 `useStopEtas` 的群組選取同步加入了目的地與 `stopSeq` 比對，避免重複 key、選錯方向；循環線回程卡的站序頁連結仍用官方終點（`routeDestination`）。九巴改為「先收集原始班次 → 合併月台 → 拆分 → 合併重複目的地 → 最後才取三班」，同一站牌兩次經過不會被提前截斷；`findSiblingStopIds()` 讓站序頁只在同名站重複出現時才合併月台查詢，非來源站也能標示正確方向；色調順序改依目的地字串固定，30 秒更新不會換色。 |
-| **車站路線卡要「長途方向優先、終點站最後」** | 新增 `src/utils/routeOrder.js` 的 `sortRoutes()`：依「本站到路線終點」剩餘距離由長到短排序，終點站最後，同距離再依到站時間／路線號碼；`src/services/api.js` 新增 `attachRouteProgress()`（以 ETA 站序對應 `/route-stop` 站序、沿線 Haversine 加總，站序快取＋最多 6 條併發、單條 6 秒／整批 8 秒逾時），`useBusData` 先顯示 ETA、背景補上 `progress` 後重排一次，`StopSection` 改用 `sortRoutes()`，附近／搜尋／收藏頁共用。 |
+| **車站路線卡要「長途方向優先、終點站最後」** | 新增 `src/utils/routeOrder.js` 的 `sortRoutes()`：依「本站到路線終點」剩餘距離由長到短排序，終點站最後，同距離再依到站時間／路線號碼；`src/services/api.js` 新增 `attachRouteProgress()`（以 ETA 站序對應 `/route-stop` 站序、沿線 Haversine 加總，站序快取＋最多 6 條併發、單條 6 秒／整批 8 秒逾時），`useBusData` 先顯示 ETA、背景補上 `progress` 後重排一次，`StopSection` 改用 `sortRoutes()`，附近／搜尋／收藏頁共用；沒有到站時間（已過終班）的路線一律排最後，不影響其他排序規則。 |
 
