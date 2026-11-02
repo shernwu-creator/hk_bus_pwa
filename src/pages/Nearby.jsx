@@ -5,20 +5,15 @@ import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.j
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLocation from '../hooks/useLocation.js'
-import { DEFAULT_RADIUS, getFareUpdatedAt, getNearbyStops } from '../services/api.js'
+import { getFareUpdatedAt, getNearbyStops } from '../services/api.js'
 import { formatClock, formatDateTime } from '../utils/format.js'
 
 /** Leaflet 只在地圖區塊需要，動態載入讓首屏（定位＋站點列表）不必等地圖程式碼 */
 const StopMap = lazy(() => import('../components/StopMap.jsx'))
 
-const RADIUS_OPTIONS = [
-  { value: 300, label: '300 公尺' },
-  { value: 500, label: '500 公尺' },
-  { value: 1000, label: '1 公里' },
-]
-
 /**
- * 附近頁：GPS 定位 → 半徑內 KMB + CTB 站點 → 展開查看路線 ETA
+ * 附近頁：GPS 定位 → 500 公尺內 KMB + CTB 站點 → 展開查看路線 ETA
+ * 搜尋半徑固定為 500 公尺（見 services/api.js 的 DEFAULT_RADIUS），不提供使用者調整。
  * 只有被展開的站點才會發出 ETA 請求，避免一次打出數十個 API 呼叫。
  */
 export default function Nearby() {
@@ -33,10 +28,9 @@ export default function Nearby() {
   } = useLocation()
   const { favorites, toggleFavorite } = useFavorites()
 
-  const [radius, setRadius] = useState(DEFAULT_RADIUS)
   const [stops, setStops] = useState([])
   const [error, setError] = useState(null)
-  // 已完成的請求識別（座標＋半徑＋更新次數）；loading 由「目前請求 vs 已完成請求」推導，
+  // 已完成的請求識別（座標＋更新次數）；loading 由「目前請求 vs 已完成請求」推導，
   // 避免在 effect 內同步 setState（react/set-state-in-effect）。
   const [loadedRequestKey, setLoadedRequestKey] = useState(null)
   // 可同時展開多個站點（打開下面站點時不會收起上面已打開的）
@@ -65,7 +59,7 @@ export default function Nearby() {
   const lat = coords?.lat
   const lng = coords?.lng
   const requestKey =
-    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat},${lng},${radius},${reloadToken}` : null
+    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat},${lng},${reloadToken}` : null
   let status = 'idle'
   if (requestKey !== null) {
     status = loadedRequestKey === requestKey ? (error ? 'error' : 'ready') : 'loading'
@@ -76,7 +70,7 @@ export default function Nearby() {
 
     let cancelled = false
 
-    getNearbyStops({ lat, lng, radius, limit: 20 })
+    getNearbyStops({ lat, lng, limit: 20 })
       .then((list) => {
         if (cancelled) return
         setStops(list)
@@ -96,7 +90,7 @@ export default function Nearby() {
     return () => {
       cancelled = true
     }
-  }, [requestKey, lat, lng, radius, focusStop])
+  }, [requestKey, lat, lng, focusStop])
 
   // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
   // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。
@@ -234,27 +228,6 @@ export default function Nearby() {
             </button>
           </div>
         </div>
-
-        <div className="mt-2.5 flex items-center gap-1.5">
-          {RADIUS_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setRadius(option.value)}
-              aria-pressed={radius === option.value}
-              className={`chip px-3 py-1 transition ${
-                radius === option.value
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-          <span className="ml-auto text-[11px] text-slate-400 dark:text-slate-500">
-            {status === 'ready' ? `${stops.length} 個站點` : ' '}
-          </span>
-        </div>
       </section>
 
       {status === 'loading' && <StopSkeleton rows={4} />}
@@ -264,18 +237,7 @@ export default function Nearby() {
       {status === 'ready' && stops.length === 0 && (
         <EmptyState
           title="附近找不到站點"
-          description={`${radius} 公尺內沒有可查詢的九巴、城巴或小巴站點，試試擴大搜尋範圍。`}
-          action={
-            radius < 1000 ? (
-              <button
-                type="button"
-                onClick={() => setRadius(1000)}
-                className="mt-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-white dark:text-slate-900"
-              >
-                擴大至 1 公里
-              </button>
-            ) : null
-          }
+          description="500 公尺內沒有可查詢的九巴、城巴或小巴站點，請移動到其他位置或重新定位後再試。"
         />
       )}
 

@@ -135,7 +135,7 @@ src/
 ├─ App.jsx                   # Router（basename 跟隨 BASE_URL）＋版面；頁面以 React.lazy 分 chunk
 ├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip）
 ├─ pages/
-│  ├─ Nearby.jsx             # 附近站點：定位 → 半徑篩選 → 展開查 ETA
+│  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
 │  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 站序 → ETA
 │  ├─ Favorites.jsx          # 已收藏站點（localStorage）：同名／相近站位分組顯示，可整組或單站取消收藏
 │  └─ RouteSequence.jsx      # 新視窗站序頁：全線站序、各站三班 ETA、反轉方向（URL 可分享）
@@ -190,10 +190,10 @@ scripts/
 
 ### 6.2 附近站點
 
-`getNearbyStops({ lat, lng, radius, limit })`：
+`getNearbyStops({ lat, lng, limit })`：搜尋半徑固定為 **500 公尺**（`DEFAULT_RADIUS`），不開放使用者調整。
 
 1. `Promise.allSettled` 同時取得九巴站點、城巴索引、小巴索引；任一業者失敗仍會顯示其他業者。
-2. Haversine 計算距離，取半徑內站點。
+2. Haversine 計算距離，取 500 公尺內站點。
 3. **同業者 + 同站名 + 120 公尺內**視為同一車站的不同站牌/月台：
    - 站名去掉結尾的 `(YY123)` 月台代號再顯示；
    - 其餘站牌編號存進 `siblingIds`，查 ETA 時一併合併（每站最多再多查 5 個站牌）。

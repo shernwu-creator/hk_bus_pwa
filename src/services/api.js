@@ -27,7 +27,7 @@ const KMB_BASE = 'https://data.etabus.gov.hk/v1/transport/kmb'
 const CTB_BASE = 'https://rt.data.gov.hk/v2/transport/citybus'
 const GMB_BASE = 'https://data.etagmb.gov.hk'
 
-/** 首頁附近站點的預設搜尋半徑（公尺） */
+/** 首頁附近站點的搜尋半徑（公尺）：固定 500，不開放使用者調整 */
 export const DEFAULT_RADIUS = 500
 /** 每條路線最多顯示三班車 */
 export const ETA_PER_ROUTE = 3
@@ -330,12 +330,12 @@ const SAME_STOP_RADIUS = 120
 const MAX_SIBLINGS = 5
 
 /**
- * 附近站點：以座標篩選半徑內的 KMB + CTB + GMB 站點，依距離排序
+ * 附近站點：以座標篩選 500 公尺內（固定半徑，見 DEFAULT_RADIUS）的 KMB + CTB + GMB 站點，依距離排序
  * 同一業者、同站名的相鄰站牌（九巴一個總站常有多個月台編號）會合併成一筆，
  * 其餘站牌編號放在 siblingIds，查 ETA 時一併合併顯示。
  * @returns {Promise<Array<{operator:string,id:string,nameTc:string,nameEn:string,lat:number,lng:number,routes:string[]|null,siblingIds:string[],distance:number}>>}
  */
-export async function getNearbyStops({ lat, lng, radius = DEFAULT_RADIUS, limit = 12 } = {}) {
+export async function getNearbyStops({ lat, lng, limit = 12 } = {}) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     throw new ApiError('缺少有效的定位座標')
   }
@@ -365,7 +365,7 @@ export async function getNearbyStops({ lat, lng, radius = DEFAULT_RADIUS, limit 
   const matches = []
   for (const stop of allStops) {
     const distance = distanceInMeters(origin, stop)
-    if (distance <= radius) matches.push({ ...stop, distance })
+    if (distance <= DEFAULT_RADIUS) matches.push({ ...stop, distance })
   }
 
   matches.sort((a, b) => a.distance - b.distance)
