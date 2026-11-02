@@ -4,6 +4,38 @@ import OperatorBadge from './OperatorBadge.jsx'
 import { serviceTypeLabel } from '../utils/format.js'
 
 /**
+ * 多目的地的色調：同一站點同一路線出現不同目的地時（例如循環線去程／回程），
+ * 用不同顏色加上「往 [目的地]」標籤，讓使用者一眼分辨要搭哪一邊。
+ * 顏色順序固定，同時提供深色模式樣式。
+ */
+const DESTINATION_TONES = [
+  {
+    badge: 'bg-sky-100/80 ring-1 ring-sky-200 dark:bg-sky-500/15 dark:ring-sky-500/30',
+    chip: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+    slot: 'bg-sky-50 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:ring-sky-500/25',
+    dot: 'bg-sky-500',
+  },
+  {
+    badge: 'bg-amber-100/80 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:ring-amber-500/30',
+    chip: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+    slot: 'bg-amber-50 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:ring-amber-500/25',
+    dot: 'bg-amber-500',
+  },
+  {
+    badge: 'bg-violet-100/80 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:ring-violet-500/30',
+    chip: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+    slot: 'bg-violet-50 ring-1 ring-violet-200 dark:bg-violet-500/10 dark:ring-violet-500/25',
+    dot: 'bg-violet-500',
+  },
+  {
+    badge: 'bg-emerald-100/80 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:ring-emerald-500/30',
+    chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+    slot: 'bg-emerald-50 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/25',
+    dot: 'bg-emerald-500',
+  },
+]
+
+/**
  * 巴士路線／ETA 顯示卡片
  * 內容：業者標籤、路線號碼、方向、上車收費，以及並排的最近三班車倒數
  *
@@ -12,17 +44,27 @@ import { serviceTypeLabel } from '../utils/format.js'
  * @param {object} props
  * @param {object} props.entry ETA 路線資料
  * @param {() => void} [props.onClick] 點擊卡片時的動作
+ * @param {number|null} [props.destinationVariant]
+ *        同一站點同一路線有多個目的地時，這個目的地分組的索引（0 起）；
+ *        傳 null／不傳代表只有單一目的地，維持原本簡潔的 UI。
  */
-export default function BusCard({ entry, onClick }) {
+export default function BusCard({ entry, onClick, destinationVariant = null }) {
   if (!entry) return null
   const { route, operator, destination, fare, serviceType, etas = [] } = entry
   const lastBus = etas.some((eta) => eta.remark?.includes('最後'))
   const special = serviceTypeLabel(serviceType)
+  const variant = Number.isInteger(destinationVariant) ? destinationVariant : null
+  const tone = variant == null ? null : DESTINATION_TONES[variant % DESTINATION_TONES.length]
+  const showDestination = variant != null
 
   const body = (
     <>
       <span className="flex items-start gap-2.5">
-        <span className="flex w-16 shrink-0 flex-col items-center rounded-xl bg-slate-100/80 px-1 py-1.5 dark:bg-slate-800/80">
+        <span
+          className={`flex w-16 shrink-0 flex-col items-center rounded-xl px-1 py-1.5 ${
+            tone ? tone.badge : 'bg-slate-100/80 dark:bg-slate-800/80'
+          }`}
+        >
           <span className="whitespace-nowrap text-xl font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
             {route}
           </span>
@@ -63,7 +105,13 @@ export default function BusCard({ entry, onClick }) {
             )}
           </span>
 
-          <EtaSlots etas={etas} className="mt-2" />
+          <EtaSlots
+            etas={etas}
+            className="mt-2"
+            destination={destination}
+            showDestination={showDestination}
+            tone={tone}
+          />
         </span>
       </span>
 

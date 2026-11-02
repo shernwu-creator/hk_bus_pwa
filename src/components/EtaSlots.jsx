@@ -11,14 +11,15 @@ import { formatClock } from '../utils/format.js'
  * @param {boolean} [props.selectable] 是否可點擊（作為推算基準）
  * @param {boolean} [props.selected] 是否為目前的推算基準班次
  * @param {() => void} [props.onSelect]
+ * @param {string} [props.toneClass] 多目的地時的底色／外框色調（由呼叫端依目的地分組提供）
  */
-export function EtaSlot({ eta, selectable = false, selected = false, onSelect }) {
+export function EtaSlot({ eta, selectable = false, selected = false, onSelect, toneClass = '' }) {
   const minutes = eta?.minutes ?? null
   const isArriving = minutes != null && minutes <= 0
   const label = eta?.time ? `${formatClock(eta.time)} 到站` : '未有班次'
   const ringClass = selected
     ? 'bg-sky-50 ring-2 ring-sky-500 dark:bg-sky-500/15 dark:ring-sky-400'
-    : 'bg-slate-50 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700/60'
+    : toneClass || 'bg-slate-50 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700/60'
   const className = `block w-full rounded-xl px-1.5 py-1.5 text-center ring-inset transition ${ringClass}`
 
   const body = (
@@ -73,12 +74,19 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect })
 /**
  * 最近三班車的並排顯示（路線卡片與站序頁共用，取代原本各自複製的 ETA 格）。
  *
+ * 同一站點同一路線有多個目的地時，呼叫端傳入 showDestination 與 tone，
+ * 三格上方會顯示「往 [目的地]」標籤並以同色底色區隔方向；
+ * 只有單一目的地時保持原本簡潔的 UI（不顯示額外標籤）。
+ *
  * @param {object} props
  * @param {Array} [props.etas] 最多三筆 ETA（不足三筆以空格子顯示）
  * @param {string} [props.className] 外層追加樣式（例如 mt-2）
  * @param {boolean} [props.selectable] 三格是否可點擊切換推算基準
  * @param {number|null} [props.selectedIndex] 目前作為推算基準的班次索引（0-2）
  * @param {(index:number) => void} [props.onSelect] 點擊第 index 班時的回呼
+ * @param {string} [props.destination] 目的地名稱（多目的地時顯示）
+ * @param {boolean} [props.showDestination] 是否顯示「往 [目的地]」標籤
+ * @param {{chip:string, slot:string, dot:string}|null} [props.tone] 目的地色調
  */
 export default function EtaSlots({
   etas = [],
@@ -86,20 +94,40 @@ export default function EtaSlots({
   selectable = false,
   selectedIndex = null,
   onSelect,
+  destination = '',
+  showDestination = false,
+  tone = null,
 }) {
   const slots = [etas[0] ?? null, etas[1] ?? null, etas[2] ?? null]
+  const showHeading = showDestination && Boolean(destination)
 
   return (
-    <span className={`grid grid-cols-3 gap-1.5 ${className}`}>
-      {slots.map((eta, index) => (
-        <EtaSlot
-          key={index}
-          eta={eta}
-          selectable={selectable && Boolean(eta) && Boolean(onSelect)}
-          selected={selectedIndex === index}
-          onSelect={onSelect ? () => onSelect(index) : undefined}
-        />
-      ))}
+    <span className={`block ${className}`}>
+      {showHeading && (
+        <span className="mb-1 flex">
+          <span
+            className={`chip ${tone?.chip ?? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${tone?.dot ?? 'bg-slate-400'}`}
+              aria-hidden="true"
+            />
+            往 {destination}
+          </span>
+        </span>
+      )}
+      <span className="grid grid-cols-3 gap-1.5">
+        {slots.map((eta, index) => (
+          <EtaSlot
+            key={index}
+            eta={eta}
+            selectable={selectable && Boolean(eta) && Boolean(onSelect)}
+            selected={selectedIndex === index}
+            onSelect={onSelect ? () => onSelect(index) : undefined}
+            toneClass={showHeading ? tone?.slot : undefined}
+          />
+        ))}
+      </span>
     </span>
   )
 }

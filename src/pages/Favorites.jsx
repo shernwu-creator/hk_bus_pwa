@@ -162,9 +162,9 @@ function groupFavorites(favorites) {
   return groups.map((group) => buildGroup(group.members, group.nameKey))
 }
 
-/** 路線卡片的識別 key（同一路線可能有不同方向／服務類型） */
+/** 路線卡片的識別 key（同一路線可能有不同方向／目的地／服務類型） */
 function routeEntryKey(entry) {
-  return `${entry.operator}-${entry.route}-${entry.direction}-${entry.serviceType}`
+  return `${entry.operator}-${entry.route}-${entry.direction}-${entry.destination ?? ''}-${entry.serviceType}`
 }
 
 /**

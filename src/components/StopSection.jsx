@@ -17,9 +17,9 @@ function sortByArrival(routes) {
   })
 }
 
-/** 路線卡片的識別 key（同一路線可能有不同方向／服務類型） */
+/** 路線卡片的識別 key（同一路線可能有不同方向／目的地／服務類型） */
 function routeEntryKey(entry) {
-  return `${entry.operator}-${entry.route}-${entry.direction}-${entry.serviceType}`
+  return `${entry.operator}-${entry.route}-${entry.direction}-${entry.destination ?? ''}-${entry.serviceType}`
 }
 
 /**
@@ -62,10 +62,28 @@ export default function StopSection({
 }) {
   const [showAll, setShowAll] = useState(false)
   const sortedRoutes = useMemo(() => sortByArrival(group?.routes ?? []), [group?.routes])
+  // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
+  // 卡片要加上「往 X」標示並以顏色區隔；只有一個目的地時維持原本簡潔的 UI。
+  const destinationsByRoute = useMemo(() => {
+    const byRoute = new Map()
+    for (const entry of sortedRoutes) {
+      const routeKey = `${entry.operator}-${entry.route}`
+      const destinationKey = `${entry.direction}|${entry.destination ?? ''}`
+      const list = byRoute.get(routeKey) ?? []
+      if (!list.includes(destinationKey)) list.push(destinationKey)
+      byRoute.set(routeKey, list)
+    }
+    // 依目的地字串排序決定固定色調順序，避免班次更新、到站時間改變時同一目的地換色
+    for (const destinations of byRoute.values()) {
+      destinations.sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+    }
+    return byRoute
+  }, [sortedRoutes])
   const routeStops = group?.routeStops
   const stop = group?.stop ?? {}
   const visibleRoutes = showAll ? sortedRoutes : sortedRoutes.slice(0, 6)
-  const bodyId = `stop-body-${stop.operator}-${stop.id}`
+  // 循環線同一站名可能出現兩次（站序不同），DOM id 帶上 seq 才不會重複
+  const bodyId = `stop-body-${stop.operator}-${stop.id}-${seq ?? ''}`
 
   // 分組顯示：同一車站的多個站位共用一個標題，代號／業者以 chip 區分
   const grouped = Boolean(stops && stops.length > 0)
@@ -239,13 +257,22 @@ export default function StopSection({
 
           {sortedRoutes.length > 0 && (
             <>
-              {visibleRoutes.map((entry) => (
-                <BusCard
-                  key={routeEntryKey(entry)}
-                  entry={entry}
-                  onClick={() => openSequence(entry)}
-                />
-              ))}
+              {visibleRoutes.map((entry) => {
+                const destinationKeys =
+                  destinationsByRoute.get(`${entry.operator}-${entry.route}`) ?? []
+                const destinationKey = `${entry.direction}|${entry.destination ?? ''}`
+                const variantIndex = destinationKeys.indexOf(destinationKey)
+                return (
+                  <BusCard
+                    key={routeEntryKey(entry)}
+                    entry={entry}
+                    destinationVariant={
+                      destinationKeys.length > 1 && variantIndex >= 0 ? variantIndex : null
+                    }
+                    onClick={() => openSequence(entry)}
+                  />
+                )
+              })}
               {sortedRoutes.length > 6 && (
                 <button
                   type="button"

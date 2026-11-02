@@ -279,7 +279,52 @@ function normalizeStopName(name = '') {
   return String(name).replace(/\s*[(（][A-Z0-9]{2,10}[)）]\s*$/i, '').trim()
 }
 
-/** 同業者、同站名且在此範圍內視為同一個車站的不同月台 */
+/**
+ * 從同一路線的站序清單找出「同名且相距 ≤ SAME_STOP_RADIUS」的月台。
+ *
+ * 循環線（例如 26M）的同一站名會在站序出現兩次（順天總站 seq8／seq18，兩個站牌相距約 13 公尺），
+ * 站序頁展開這類站點時要一起查同日同名月台，才能依 ETA 站序拆出「去程／回程」方向。
+ * 只處理重複出現的站名，其餘站點維持單一月台請求，避免每展開一站就多打數個 API。
+ *
+ * @param {Array<{id:string,nameTc?:string,nameEn?:string,lat?:number|null,lng?:number|null}>} stops
+ *        getRouteStops() 的結果
+ * @returns {Map<string, string[]>} 站點 ID → 其他月台 ID（最多 MAX_SIBLINGS 個）
+ */
+export function findSiblingStopIds(stops = []) {
+  const map = new Map()
+  if (!stops?.length) return map
+
+  const nameOf = (stop) => normalizeStopName(stop.nameTc || stop.nameEn || '')
+  const nameCounts = new Map()
+  for (const stop of stops) {
+    const name = nameOf(stop)
+    if (name) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+  }
+
+  for (const stop of stops) {
+    const name = nameOf(stop)
+    if (!name || (nameCounts.get(name) ?? 0) < 2) continue
+    if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) continue
+    const siblingIds = stops
+      .filter(
+        (other) =>
+          other.id !== stop.id &&
+          nameOf(other) === name &&
+          Number.isFinite(other.lat) &&
+          Number.isFinite(other.lng) &&
+          distanceInMeters(stop, other) <= SAME_STOP_RADIUS,
+      )
+      .map((other) => other.id)
+      .slice(0, MAX_SIBLINGS)
+    if (siblingIds.length > 0) map.set(String(stop.id), siblingIds)
+  }
+  return map
+}
+
+/**
+ * 同業者、同站名且在此範圍內視為同一個車站的不同月台（公尺）。
+ * 站序頁（RouteSequence）也用它判斷循環線同一站名出現兩次時要合併哪些月台。
+ */
 const SAME_STOP_RADIUS = 120
 /** 合併月台時最多額外查詢的站牌數量（避免一次打出太多 ETA 請求） */
 const MAX_SIBLINGS = 5
@@ -581,16 +626,34 @@ function toEta(row) {
   const stopSeq = Number(row.seq ?? row.stop_seq)
   return {
     seq: Number(row.eta_seq ?? 0),
-    // 站序（route sequence）：合併多個月台去重時，用來優先保留目標站牌的班次
+    // 站序（route sequence）：合併多個月台去重時，用來優先保留目標站牌的班次，
+    // 也是循環線判斷「同一站名的兩次經過」的依據
     stopSeq: Number.isFinite(stopSeq) ? stopSeq : null,
+    // 服務類型：循環線拆分時只認「同一 service_type 內」的兩個站序，
+    // 避免特別班次（同一目的地但站序偏移 1～2 站）被誤拆成兩個方向
+    serviceType: String(row.service_type ?? '1'),
     minutes: minutesUntil(row.eta),
     time: row.eta ?? null,
     remark: row.rmk_tc ?? '',
   }
 }
 
+/**
+ * 目的地分組用的 key：忽略尾端「(循環線)」標記與多餘空白，
+ * 避免同一終點因 service_type 的寫法不同（例如「觀塘 (apm)」與「觀塘 (apm) (循環線)」）
+ * 被拆成兩張時間完全相同的卡片。顯示仍使用原始的 dest_tc。
+ */
+function destinationKey(destination) {
+  return String(destination ?? '')
+    .replace(/\s*[（(]\s*循環線\s*[)）]\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 const sortEtaGroups = (a, b) =>
-  a.route.localeCompare(b.route, 'en', { numeric: true }) || a.direction.localeCompare(b.direction)
+  a.route.localeCompare(b.route, 'en', { numeric: true }) ||
+  a.direction.localeCompare(b.direction) ||
+  String(a.destination ?? '').localeCompare(String(b.destination ?? ''), 'zh-Hant')
 
 /** 補上 nextMinutes（最近一班車的剩餘分鐘），供 UI 排序 */
 function withNextMinutes(entry) {
@@ -601,22 +664,35 @@ function withNextMinutes(entry) {
   return { ...entry, nextMinutes }
 }
 
-/** 把「一列一班車」的 ETA 回應整理成「一條路線一筆 + 最近三班車」 */
-function groupEtaRows(operator, rows, targetSeq = null) {
+/**
+ * 把「一列一班車」的 ETA 回應整理成「一條路線（＋目的地）一筆」。
+ *
+ * key 用「路線 + 方向 + 目的地」：同一站點同一路線可能出現不同目的地的班次
+ * （例如 13M 的特別班次往觀塘站、循環線去程往觀塘／回程往彩虹），
+ * 必須分開成不同卡片，否則會把往相反方向的班次混在同一組時間內。
+ *
+ * `finalize: false` 時只收集、不排序取三班（九巴需要先合併月台與拆循環線的
+ * 兩次經過，最後才截取最近三班，否則同一站牌去程／回程班次會被提前截斷）。
+ *
+ * @param {string} operator
+ * @param {Array} rows
+ * @param {number|null} [targetSeq]
+ * @param {{finalize?: boolean}} [options]
+ */
+function groupEtaRows(operator, rows, targetSeq = null, { finalize = true } = {}) {
   const groups = new Map()
 
   for (const row of rows) {
     if (!row?.route) continue
     // 同一路線可能有多個 service_type（例如 5C 的 1 與 2），到站時間相同；
-    // 這裡只用「路線 + 方向」當 key，同一班車交由 normalizeEtaList 去重。
-    const key = `${normalize(row.route)}|${row.dir ?? 'O'}`
+    // 目的地相同（忽略「(循環線)」寫法差異）時仍合併，同一班車交由 normalizeEtaList 去重。
+    const key = `${normalize(row.route)}|${row.dir ?? 'O'}|${destinationKey(row.dest_tc)}`
     if (!groups.has(key)) groups.set(key, createRouteEntry(operator, row))
     groups.get(key).etas.push(toEta(row))
   }
 
-  return [...groups.values()]
-    .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
-    .sort(sortEtaGroups)
+  const entries = [...groups.values()]
+  return finalize ? finishEtaGroups(entries, targetSeq) : entries
 }
 
 /** 兩筆 ETA 視為同一班車的最大時間差（毫秒） */
@@ -680,17 +756,28 @@ function normalizeEtaList(input, targetSeq = null) {
     .map((eta, index) => ({ ...eta, seq: index + 1 }))
 }
 
+/** 為每組 ETA 排序、去重並只保留最近三班 */
+function finishEtaGroups(entries, targetSeq = null) {
+  return entries
+    .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
+    .sort(sortEtaGroups)
+}
+
 /**
- * 合併多個站牌（月台）的 ETA：同一路線＋方向只留一筆，
- * 到站時間依實際時間排序後取最近三班。
+ * 合併多個站牌（月台）的 ETA：同一路線＋方向＋目的地只留一筆。
+ *
+ * 這裡只做合併、不排序取三班；交由呼叫端呼叫 finishEtaGroups。
+ * 九巴循環線需要在「取最近三班」之前，先依 ETA 的站序把同一站名的兩次經過拆開。
  */
-function mergeEtaGroups(groupSets, targetSeq = null) {
+function mergeEtaGroups(groupSets) {
   if (groupSets.length === 1) return groupSets[0]
 
   const merged = new Map()
   for (const entries of groupSets) {
     for (const entry of entries) {
-      const key = `${entry.route}|${entry.direction}|${entry.serviceType}`
+      // 同一目的地即使 service_type 不同（例如特別班次）仍合併，
+      // 與 groupEtaRows 的分組規則一致；服務類型差異交給 UI 的特別班次標籤
+      const key = `${entry.route}|${entry.direction}|${destinationKey(entry.destination)}`
       const existing = merged.get(key)
       if (!existing) {
         merged.set(key, { ...entry, etas: [...entry.etas] })
@@ -701,8 +788,148 @@ function mergeEtaGroups(groupSets, targetSeq = null) {
   }
 
   return [...merged.values()]
-    .map((entry) => withNextMinutes({ ...entry, etas: normalizeEtaList(entry.etas, targetSeq) }))
-    .sort(sortEtaGroups)
+}
+
+/* ------------------------------------------------------------------ */
+/* 循環線：同一站名的去程／回程                                        */
+/* ------------------------------------------------------------------ */
+
+/** 九巴路線基本資料快取（只為循環線回程取得起點站名，避免重複請求） */
+const kmbRouteInfoCache = new Map()
+
+function getKmbRouteInfo(route, direction, serviceType = '1') {
+  const key = `${route}|${direction}|${serviceType}`
+  if (!kmbRouteInfoCache.has(key)) {
+    const promise = fetchJson(
+      `${KMB_BASE}/route/${encodeURIComponent(route)}/${direction}/${encodeURIComponent(serviceType)}`,
+      { timeout: 6000 },
+    )
+      .then((json) => json.data ?? null)
+      // 暫時性失敗不要留在快取，讓下一次輪詢可以重試（成功結果才長期快取）
+      .catch(() => {
+        kmbRouteInfoCache.delete(key)
+        return null
+      })
+    kmbRouteInfoCache.set(key, promise)
+  }
+  return kmbRouteInfoCache.get(key)
+}
+
+/** 九巴路線站序快取（只取站序號碼）：循環線拆分時用來確認兩次經過的位置 */
+const kmbRouteSeqsCache = new Map()
+
+function getKmbRouteSeqs(route, direction, serviceType = '1') {
+  const key = `${route}|${direction}|${serviceType}`
+  if (!kmbRouteSeqsCache.has(key)) {
+    const promise = fetchJson(
+      `${KMB_BASE}/route-stop/${encodeURIComponent(route)}/${direction}/${encodeURIComponent(serviceType)}`,
+      { timeout: 6000 },
+    )
+      .then((json) =>
+        (json.data ?? [])
+          .map((row) => Number(row.seq))
+          .filter(Number.isFinite)
+          .sort((a, b) => a - b),
+      )
+      .catch(() => {
+        kmbRouteSeqsCache.delete(key)
+        return null
+      })
+    kmbRouteSeqsCache.set(key, promise)
+  }
+  return kmbRouteSeqsCache.get(key)
+}
+
+/**
+ * 循環線（例如 26M）的同一站名會在路線中出現兩次，並被合併成同一個站點群組：
+ * 順天總站去程往觀塘（seq 8）、回程往彩虹（seq 18），但官方 stop-eta 兩次都回
+ * dest_tc「觀塘(循環線)」，無法單靠 dest 分辨。這裡用 ETA 的站序（stopSeq）拆成兩組：
+ * 站序較前的一組維持官方目的地，較後的一組（回程）以路線起點（orig_tc）作目的地標示。
+ *
+ * 為避免誤拆（尤其同一目的地的特別班次對同一站牌可能有 1～2 站的站序偏移），必須同時滿足：
+ *   1. 目的地含「循環」、ETA 有站序、且所有班次屬同一個 service_type；
+ *   2. 該 service_type 內恰好兩個站序；
+ *   3. 用 /route-stop 站序清單驗證：一個站在路線前半、一個在後半，且相距至少 1/3 條路線
+ *      （排除 78A 皇后山總站這類末段折返兩次經過的誤判）。
+ * 任何一項不成立、或取不到路線資料／起點時，保持原狀（寧可少拆，不可標錯方向）。
+ */
+async function splitCircularPasses(entries) {
+  const result = []
+  for (const entry of entries) {
+    const seqs = new Set(entry.etas.map((eta) => eta.stopSeq).filter(Number.isFinite))
+    const serviceTypes = new Set(entry.etas.map((eta) => eta.serviceType ?? entry.serviceType))
+    const canSplit =
+      String(entry.destination ?? '').includes('循環') &&
+      seqs.size === 2 &&
+      serviceTypes.size === 1 &&
+      entry.etas.every((eta) => Number.isFinite(eta.stopSeq))
+    if (!canSplit) {
+      result.push(entry)
+      continue
+    }
+
+    const [firstSeq, lastSeq] = [...seqs].sort((a, b) => a - b)
+    const routeSeqs = await getKmbRouteSeqs(entry.route, entry.direction, entry.serviceType)
+    const total = routeSeqs?.length ? routeSeqs[routeSeqs.length - 1] : 0
+    const oppositePass =
+      total >= 6 &&
+      routeSeqs.includes(firstSeq) &&
+      routeSeqs.includes(lastSeq) &&
+      firstSeq < total / 2 &&
+      lastSeq > total / 2 &&
+      lastSeq - firstSeq >= total / 3
+    if (!oppositePass) {
+      result.push(entry)
+      continue
+    }
+
+    const info = await getKmbRouteInfo(entry.route, entry.direction, entry.serviceType)
+    const orig = String(info?.orig_tc ?? '').trim()
+    if (!orig) {
+      result.push(entry)
+      continue
+    }
+
+    const towardDestination = entry.etas.filter((eta) => eta.stopSeq === firstSeq)
+    const towardOrigin = entry.etas.filter((eta) => eta.stopSeq === lastSeq)
+    if (towardDestination.length === 0 || towardOrigin.length === 0) {
+      result.push(entry)
+      continue
+    }
+
+    result.push(
+      { ...entry, etas: towardDestination },
+      {
+        ...entry,
+        // 回程顯示「往 起點」作方向提示；站序頁標題仍用官方終點（routeDestination）
+        destination: orig,
+        destinationEn: info.orig_en ?? '',
+        routeDestination: entry.destination,
+        etas: towardOrigin,
+      },
+    )
+  }
+  return result
+}
+
+/**
+ * 拆分循環線後，回程目的地可能與同站同方向、另一個 service_type 的終點相同
+ * （例如 78A：回程往皇后山，剛好另一個 variant 的目的地也是皇后山），
+ * 這時要再合併一次同目的地群組，避免出現兩張一模一樣的卡片。
+ */
+function mergeSameDestination(entries) {
+  const merged = new Map()
+  for (const entry of entries) {
+    const key = `${entry.route}|${entry.direction}|${destinationKey(entry.destination)}`
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, { ...entry, etas: [...entry.etas] })
+      continue
+    }
+    existing.etas = [...existing.etas, ...entry.etas]
+    existing.routeDestination = existing.routeDestination ?? entry.routeDestination
+  }
+  return [...merged.values()]
 }
 
 /** 九巴：以站點查全部路線的 ETA（同一車站的多個月台會合併） */
@@ -711,7 +938,8 @@ export async function getKmbStopEtas(stopId, siblingIds = [], targetSeq = null) 
   const results = await mapWithConcurrency(ids, KMB_ETA_CONCURRENCY, async (id) => {
     try {
       const json = await fetchJson(`${KMB_BASE}/stop-eta/${encodeURIComponent(id)}`)
-      return groupEtaRows('KMB', json.data ?? [], targetSeq)
+      // 先只收集原始班次；合併月台＋拆循環線之後才排序取三班（見 getKmbStopEtas 尾段）
+      return groupEtaRows('KMB', json.data ?? [], targetSeq, { finalize: false })
     } catch (error) {
       if (ids.length === 1) throw error
       console.warn(`[api] 九巴站點 ${id} 讀取失敗：${error.message}`)
@@ -722,7 +950,10 @@ export async function getKmbStopEtas(stopId, siblingIds = [], targetSeq = null) 
   // 只有「所有站牌都失敗」才算錯誤；單一月台失敗仍顯示其他月台的班次
   const succeeded = results.filter((entries) => entries !== null)
   if (succeeded.length === 0) throw new ApiError('九巴站點暫時無法提供到站資料，請稍後再試')
-  return mergeEtaGroups(succeeded, targetSeq)
+  // 先合併月台 → 拆循環線的兩次經過 → 合併重複目的地 → 最後才排序／取最近三班
+  const merged = mergeEtaGroups(succeeded)
+  const split = await splitCircularPasses(merged)
+  return finishEtaGroups(mergeSameDestination(split), targetSeq)
 }
 
 /**
@@ -870,7 +1101,7 @@ export async function getGmbStopEtas(stopId, siblingIds = [], targetSeq = null) 
   // 全部站牌都失敗才視為錯誤，單一站牌失敗仍顯示其他站牌的班次
   const succeeded = results.filter((entries) => entries !== null)
   if (succeeded.length === 0) throw new ApiError('小巴站點暫時無法提供到站資料，請稍後再試')
-  return mergeEtaGroups(succeeded, targetSeq)
+  return finishEtaGroups(mergeEtaGroups(succeeded), targetSeq)
 }
 
 /**

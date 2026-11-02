@@ -31,7 +31,17 @@ function encode(value) {
  * @returns {string|null} 無法組出時回傳 null（缺少 operator／route／direction）
  */
 export function buildRouteSequenceUrl(entry, stop) {
-  const { operator, route, direction, serviceType, routeId, routeSeq, orig, destination } = entry ?? {}
+  const {
+    operator,
+    route,
+    direction,
+    serviceType,
+    routeId,
+    routeSeq,
+    orig,
+    destination,
+    routeDestination,
+  } = entry ?? {}
   if (!operator || !route || !direction) return null
 
   const query = []
@@ -49,7 +59,9 @@ export function buildRouteSequenceUrl(entry, stop) {
   if (routeId != null && routeId !== '') query.push(`routeId=${encode(routeId)}`)
   if (routeSeq != null && routeSeq !== '') query.push(`routeSeq=${encode(routeSeq)}`)
   if (orig) query.push(`orig=${encode(orig)}`)
-  if (destination) query.push(`dest=${encode(destination)}`)
+  // 循環線回程卡顯示「往起點」，但站序頁標題應維持官方終點（routeDestination）
+  const destinationQuery = routeDestination || destination
+  if (destinationQuery) query.push(`dest=${encode(destinationQuery)}`)
 
   const path = `route/${encode(operator)}/${encode(route)}/${encode(direction)}`
   return `${BASE_URL}${path}${query.length > 0 ? `?${query.join('&')}` : ''}`

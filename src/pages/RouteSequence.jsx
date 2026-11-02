@@ -19,6 +19,7 @@ import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import {
   distanceInMeters,
   filterByRoute,
+  findSiblingStopIds,
   getRouteIndex,
   getRouteStops,
   getStopEtas,
@@ -141,6 +142,31 @@ function findReverseRoute(rows, current) {
 }
 
 /**
+ * 從同一路線（可能已依目的地拆成多筆）挑出這一站要顯示的 ETA 群組：
+ * 優先選「ETA 站序與本站站序相符」的一組（循環線同一站名的兩次經過），其次取第一筆。
+ * 回傳 multiple 表示同一方向有多個目的地，面板需加上「往 X」標示。
+ *
+ * @param {Array} entries filterByRoute 之後的路線群組
+ * @param {string} direction outbound／inbound
+ * @param {number|string|null} stopSeq 本站站序
+ */
+function pickEtaEntry(entries, direction, stopSeq) {
+  const matched = entries.filter((entry) => entry.direction === direction)
+  const destinations = new Set(matched.map((entry) => entry.destination ?? ''))
+  const multiple = destinations.size > 1
+  if (matched.length === 0) return { entry: null, multiple: false }
+
+  const targetSeq = Number(stopSeq)
+  if (Number.isFinite(targetSeq)) {
+    const sameSeq = matched.find((entry) =>
+      entry.etas.some((eta) => Number(eta.stopSeq) === targetSeq),
+    )
+    if (sameSeq) return { entry: sameSeq, multiple }
+  }
+  return { entry: matched[0], multiple }
+}
+
+/**
  * 單一站點的最近三班 ETA（30 秒輪詢）。
  *
  * 切換站點時由父層以 key 重新掛載整個面板，舊的請求／計時器會在 cleanup 中取消，
@@ -151,6 +177,8 @@ function findReverseRoute(rows, current) {
 function useStopEtas({ stop, route, direction, siblingParam }) {
   const [state, setState] = useState({
     etas: [],
+    destination: '',
+    showDestination: false,
     loading: true,
     updating: false,
     error: null,
@@ -182,9 +210,23 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
           siblingIds: siblingParam ? siblingParam.split(',') : [],
         })
         if (cancelled) return
-        const matched = filterByRoute(entries, route).find((entry) => entry.direction === direction)
+        const { entry: matched, multiple } = pickEtaEntry(
+          filterByRoute(entries, route),
+          direction,
+          stop.seq,
+        )
+        // 合併同名月台後，同一群組可能仍混合兩個站序（幾何條件不成立而未拆分時）；
+        // 這一站的面板只顯示本站站序的班次，避免把反方向的車混進來
+        let etas = matched?.etas ?? []
+        const targetSeq = Number(stop.seq)
+        if (Number.isFinite(targetSeq) && new Set(etas.map((eta) => eta.stopSeq)).size > 1) {
+          const ownSeq = etas.filter((eta) => Number(eta.stopSeq) === targetSeq)
+          if (ownSeq.length > 0) etas = ownSeq
+        }
         setState({
-          etas: (matched?.etas ?? []).slice(0, 3),
+          etas: etas.slice(0, 3),
+          destination: matched?.destination ?? '',
+          showDestination: multiple,
           loading: false,
           updating: false,
           error: null,
@@ -246,12 +288,13 @@ function StopEtaPanel({
   onSelectEta,
   onEtasChange,
 }) {
-  const { etas, loading, updating, error, updatedAt, refresh } = useStopEtas({
-    stop,
-    route,
-    direction,
-    siblingParam: siblingIds.join(','),
-  })
+  const { etas, destination, showDestination, loading, updating, error, updatedAt, refresh } =
+    useStopEtas({
+      stop,
+      route,
+      direction,
+      siblingParam: siblingIds.join(','),
+    })
 
   // 把最新的實時 ETA 往上回報（只在資料真的變動時觸發，不會無限迴圈）
   useEffect(() => {
@@ -296,6 +339,8 @@ function StopEtaPanel({
             selectable={planSelectable}
             selectedIndex={planSelectedIndex}
             onSelect={onSelectEta}
+            destination={destination}
+            showDestination={showDestination}
           />
           {etas.length === 0 && (
             <p className="mt-1.5 px-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -446,6 +491,12 @@ export default function RouteSequence() {
     if (!activeStop) return []
     return [...highlightedIds].filter((id) => id && id !== activeStop.id)
   }, [activeStop, highlightedIds])
+
+  // 循環線同名站出現兩次時，每一列查 ETA 都要帶上同日同名月台才能拆出方向
+  const siblingIdsByStopId = useMemo(
+    () => (isGmb ? new Map() : findSiblingStopIds(stops)),
+    [stops, isGmb],
+  )
 
   /* ---------------------------------------------------------------- */
   /* 推算各站到站時間（App 1933 風格）                                 */
@@ -844,7 +895,15 @@ export default function RouteSequence() {
                 const isExpanded = expandedStopIds.has(stop.id)
                 const isSource = activeStopId === stop.id
                 const isFavorite = favoriteKeys.has(favoriteKey(stop))
-                const panelId = `stop-eta-${String(stop.id).replace(/[^A-Za-z0-9_-]+/g, '-')}`
+                // 同一站名在循環線出現兩次時（例如順天總站 seq8／seq18），
+                // 兩列是不同的站牌 ID 或站序，DOM id／key 要帶上 seq 才不會重複
+                const panelId = `stop-eta-${String(stop.id).replace(/[^A-Za-z0-9_-]+/g, '-')}-${stop.seq ?? ''}`
+                const siblingIds = [
+                  ...new Set([
+                    ...(isSource ? activeSiblingIds : []),
+                    ...(siblingIdsByStopId.get(String(stop.id)) ?? []),
+                  ]),
+                ].filter((id) => id && id !== stop.id)
                 const planEntry = travelPlan?.byStopId.get(String(stop.id)) ?? null
                 const isPlanBase =
                   planEnabled && planBaseStop != null && String(planBaseStop.id) === String(stop.id)
@@ -952,12 +1011,12 @@ export default function RouteSequence() {
 
                     {isExpanded && (
                       <StopEtaPanel
-                        key={`${stop.operator}:${stop.id}`}
+                        key={`${stop.operator}:${stop.id}:${stop.seq ?? ''}`}
                         id={panelId}
                         stop={stop}
                         route={route}
                         direction={directionValue}
-                        siblingIds={isSource ? activeSiblingIds : []}
+                        siblingIds={siblingIds}
                         planSelectable={planEnabled}
                         planSelectedIndex={isPlanBase ? (planBase?.index ?? null) : null}
                         onSelectEta={(index) => handleSelectPlanEta(stop, index)}

@@ -49,7 +49,18 @@ export default function RouteStopsPanel({
     const records = new Map()
     for (const stop of stops) {
       const group = etaGroupsByKey.get(favoriteKey(stop))
-      const entry = group?.routes?.find((row) => row.direction === selected.direction)
+      const directionRows = (group?.routes ?? []).filter(
+        (row) => row.direction === selected.direction,
+      )
+      // 同一方向可能已依目的地分成多組（循環線去程／回程）：
+      // 用 ETA 站序挑出屬於這一站的那一組，避免推算基準取到反方向的班次
+      const stopSeq = Number(stop.seq)
+      const entry =
+        (Number.isFinite(stopSeq) &&
+          directionRows.find((row) =>
+            row.etas.some((eta) => Number(eta.stopSeq) === stopSeq),
+          )) ||
+        directionRows[0]
       const etas = entry?.etas ?? []
       if (etas.length === 0) continue
       records.set(String(stop.id), { etas, updatedAt: etaUpdatedAt ?? 0 })
@@ -165,7 +176,7 @@ export default function RouteStopsPanel({
 
               return (
                 <StopSection
-                  key={`${stop.operator}-${stop.id}`}
+                  key={`${stop.operator}-${stop.id}-${stop.seq ?? ''}`}
                   group={group}
                   seq={stop.seq}
                   expanded={isExpanded}
