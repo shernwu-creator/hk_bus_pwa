@@ -21,6 +21,7 @@ export default function SearchBar({ value, onChange, placeholder, label, onClear
         type="search"
         inputMode="search"
         enterKeyHint="search"
+        autoCapitalize="characters"
         autoComplete="off"
         autoCorrect="off"
         spellCheck="false"

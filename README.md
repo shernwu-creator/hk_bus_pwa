@@ -474,7 +474,8 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
   提供）使用 `bg-gradient-to-r from-sky-500 to-indigo-500` 藍紫漸層（`StopSection` 以 `featured` 傳入）。
 - **即時倒數**：`EtaSlots` 每格為 `rounded-[14px]` 膠囊；≤ 3 分鐘或三班中的首班使用薄荷綠高光
   （`border-emerald-500/60 bg-emerald-500/15 font-black`），其餘為柔和內嵌毛玻璃塊。
-- **站點卡互動**：`StopSection` 的展開／收合鈕改為 28px 圓形玻璃按鈕（`h-7 w-7 rounded-full`）。
+- **站點卡**：站名前方不再顯示定位圖示；標題用 `text-xl font-extrabold`（20px）保持層次；
+  展開／收合鈕為 28px 圓形玻璃按鈕（`h-7 w-7 rounded-full`）。
 - Header／BottomNav／置頂地圖沿用毛玻璃膠囊；頁面背景是冰藍（日）／午夜藍紫（夜）漸層＋環境光暈。
 
 ---
@@ -589,4 +590,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **收藏頁要分成站點與路線雙分頁** | `useFavorites` 擴充為站點（沿用 `hkb:favorites:v1`）＋路線（新 key `hkb:favorite-routes:v1`，舊資料逐筆正規化、不覆寫舊 key）兩組 API（`favoriteStops`／`favoriteRoutes`、`isFavoriteStop`／`toggleFavoriteStop`、`isFavoriteRoute`／`toggleFavoriteRoute`，舊名稱保留）。`Search` 搜尋結果卡與 `RouteSequence` 頂部控制列加入星號收藏。`Favorites` 改為款式 B 毛玻璃分段切換器；收藏路線卡以 `getRouteStops`＋目前 GPS 找最近候車站，用 `useBusData` 顯示最近三班車，並可原視窗進入全線站序頁。 |
 | **全站視覺統一為款式 B 毛玻璃** | `.card` 改為 `rounded-[22px] border-white/80 bg-white/85 backdrop-blur-xl`＋柔和陰影（深色 slate）；`OperatorBadge` 改玫瑰／琥珀／薄荷圓角膠囊；`BusCard` 路線號碼框 `rounded-[14px]`（聯營／焦點路線用藍紫漸層）；`EtaSlots` 改 14px 膠囊，≤3 分鐘或首班用薄荷綠高光、其餘柔和內嵌玻璃塊；`StopSection` 展開鈕改 28px 圓形玻璃按鈕。 |
 | **準備過渡至 Cloudflare Pages** | 移除 Tailwind 已無人使用的 `kmb`／`ctb` 品牌色與 `shadow-card`（改用原生 arbitrary shadow），新增 `public/_redirects`（`/* /index.html 200`）作 SPA fallback；建置後會複製到 `dist/_redirects`，與 GitHub Pages 的 `404.html` 並存。 |
+| **行動版搜尋鍵盤與首頁站名可讀性** | `SearchBar` 的 `<input>` 補上 `autoCapitalize="characters"`（保留 `type="search"`／`inputMode="search"`／`autoCorrect="off"`／`autoComplete="off"`／`enterKeyHint="search"`），行動裝置更容易喚起英數鍵盤；`StopSection` 移除站名前的 MapPin 圖示，站點標題由 `text-lg font-semibold` 升級為 `text-xl font-extrabold`（站序頁仍保留站序數字徽章）。 |
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, MapPin, Star, X } from 'lucide-react'
+import { ChevronDown, Star, X } from 'lucide-react'
 import BusCard from './BusCard.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
@@ -139,15 +139,13 @@ export default function StopSection({
           aria-controls={bodyId}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
-            {Number.isFinite(seq) ? (
+          {Number.isFinite(seq) && (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
               <span className="text-xs font-bold tabular-nums">{seq}</span>
-            ) : (
-              <MapPin className="h-4 w-4" aria-hidden="true" />
-            )}
-          </span>
+            </span>
+          )}
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-lg font-semibold leading-snug text-slate-900 dark:text-slate-100">
+            <span className="block truncate text-xl font-extrabold leading-snug text-slate-900 dark:text-slate-100">
               {stopName}
             </span>
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">

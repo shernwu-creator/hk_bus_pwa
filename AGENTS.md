@@ -118,8 +118,9 @@ src/
 - **語言切換**：UI 文案一律經 `useLanguage()` 的 `t('key')`（字典在 `src/hooks/useLanguage.js`），
   站名／目的地用 `pickLang(nameTc, nameEn)` 只顯示單一語言；**不要**再新增中英上下堆疊。新增文案要同時補齊字典的
   `zh`／`en` 兩欄。語言存 `hkb:lang`（只接受 `'zh'`／`'en'`，預設 `'zh'`），讀寫包 `try / catch`。
-- **字級**：站點名稱用 `text-lg`（18px）；路線號碼在卡片／標題用 `text-xl`（20px）、
-  在搜尋結果與站序面板標題用 `text-lg`（18px）。改版面時保持這組層級。
+- **字級**：站點卡標題（`StopSection`，附近／收藏／搜尋站序）用 `text-xl`（20px）＋`font-extrabold`，
+  且站名前不要再放定位圖示；站序頁（`RouteSequence`）列名與搜尋結果標題用 `text-lg`（18px）；
+  路線號碼在卡片／標題用 `text-xl`（20px）。改版面時保持這組層級。
 
 ## 3. 程式風格
 
