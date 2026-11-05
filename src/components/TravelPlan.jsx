@@ -1,5 +1,6 @@
 import { Clock, Timer, TriangleAlert } from 'lucide-react'
 import { formatClock } from '../utils/format.js'
+import useLanguage from '../hooks/useLanguage.js'
 import {
   AVG_BUS_SPEED_KMH,
   DWELL_SECONDS_PER_STOP,
@@ -25,20 +26,21 @@ import {
  * @param {string} [props.className]
  */
 export function TravelPlanToggle({ active, onClick, className = '' }) {
+  const { t } = useLanguage()
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      title={active ? '關閉推算，回到一般站序' : '以本站最近一班車推算後續各站到達時間'}
+      title={active ? t('plan.toggleTitleOff') : t('plan.toggleTitleOn')}
       className={`chip shrink-0 border transition active:scale-95 ${
         active
           ? 'border-sky-600 bg-sky-600 text-white shadow-sm hover:bg-sky-700 dark:border-sky-500 dark:bg-sky-500 dark:hover:bg-sky-400'
-          : 'border-sky-200 bg-white text-sky-700 hover:border-sky-300 hover:bg-sky-50 dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-sky-500/10'
+          : 'border-sky-200 bg-white/90 text-sky-700 hover:border-sky-300 hover:bg-sky-50 dark:border-sky-500/40 dark:bg-slate-900/90 dark:text-sky-300 dark:hover:bg-sky-500/10'
       } ${className}`}
     >
       <Timer className="h-3.5 w-3.5" aria-hidden="true" />
-      {active ? '關閉到站推算' : '推算各站到站時間'}
+      {active ? t('plan.toggleOff') : t('plan.toggleOn')}
     </button>
   )
 }
@@ -52,10 +54,12 @@ export function TravelPlanToggle({ active, onClick, className = '' }) {
  * @param {boolean} [props.baseLoading] 基準站的 ETA 還在載入（顯示「正在取得」而不是「暫無班次」）
  * @param {string} [props.className]
  */
-export function TravelPlanBanner({ plan, etaLabel = '第 1 班', baseLoading = false, className = '' }) {
+export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, className = '' }) {
+  const { t, pickLang } = useLanguage()
   if (!plan?.baseStop) return null
   const hasRealtime = plan.baseTime != null
-  const baseName = plan.baseStop.nameTc || plan.baseStop.nameEn || plan.baseStop.id
+  const baseName = pickLang(plan.baseStop.nameTc, plan.baseStop.nameEn) || plan.baseStop.id
+  const busLabel = etaLabel ?? t('plan.etaLabel', { n: 1 })
   const noDownstream = plan.entries.length === 0
   const tone =
     hasRealtime || baseLoading
@@ -73,36 +77,40 @@ export function TravelPlanBanner({ plan, etaLabel = '第 1 班', baseLoading = f
           <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         )}
         <span className="min-w-0 truncate">
-          推算基準：{baseName}
-          {noDownstream ? '（終點站）' : ''}
+          {t('plan.base', { name: baseName })}
+          {noDownstream ? t('plan.terminusSuffix') : ''}
         </span>
         {hasRealtime ? (
           <span className="chip bg-white/80 px-1.5 py-0 tabular-nums text-sky-700 dark:bg-slate-900/80 dark:text-sky-300">
-            {etaLabel} · {formatClock(plan.baseTime)}
+            {busLabel} · {formatClock(plan.baseTime)}
           </span>
         ) : (
           <span className="chip bg-white/80 px-1.5 py-0 text-amber-700 dark:bg-slate-900/80 dark:text-amber-300">
-            {baseLoading ? '正在取得基準班次…' : '暫無實時班次'}
+            {baseLoading ? t('plan.loadingBase') : t('plan.noRealtime')}
           </span>
         )}
       </p>
 
       <p className="mt-1 text-[10px] leading-relaxed opacity-80">
-        {noDownstream ? (
-          '此站已是路線終點，沒有後續站點可推算。'
-        ) : hasRealtime ? (
-          <>
-            以每站約 {DWELL_SECONDS_PER_STOP} 秒停站、平均 {AVG_BUS_SPEED_KMH} km/h（直線距離 ×{' '}
-            {ROAD_DETOUR_FACTOR} 繞行係數）推算
-            {plan.terminusMinutes != null && `，到終點約 ${plan.terminusMinutes} 分`}
-            ；點擊任一站點的班次可切換推算基準。
-          </>
-        ) : baseLoading ? (
-          '正在取得基準站的最近三班車，取得後會自動顯示預計到達時間。'
-        ) : (
-          '目前沒有實時班次，以下僅顯示純車程推算（未計候車時間）；展開任一站點可取得實時到站時間。'
-        )}
-        {plan.approximate && '（部分站點缺少座標，以平均站距代替，數值僅供參考）'}
+        {noDownstream
+          ? t('plan.noDownstream')
+          : hasRealtime
+            ? (
+                <>
+                  {t('plan.assumption', {
+                    dwell: DWELL_SECONDS_PER_STOP,
+                    speed: AVG_BUS_SPEED_KMH,
+                    detour: ROAD_DETOUR_FACTOR,
+                  })}
+                  {plan.terminusMinutes != null &&
+                    t('plan.terminusMinutes', { n: plan.terminusMinutes })}
+                  {t('plan.clickHint')}
+                </>
+              )
+            : baseLoading
+              ? t('plan.loadingBaseDesc')
+              : t('plan.pureEstimate')}
+        {plan.approximate && t('plan.approximateSuffix')}
       </p>
     </div>
   )
@@ -116,16 +124,18 @@ export function TravelPlanBanner({ plan, etaLabel = '第 1 班', baseLoading = f
  * @param {string} [props.className]
  */
 export function TravelPlanChips({ entry, className = '' }) {
+  const { t } = useLanguage()
   if (!entry) return null
+  const travelTitle = t('plan.chipTravelTitle', { n: entry.travelMinutes })
 
   if (entry.arrivalMs == null) {
     return (
       <span className={`flex flex-wrap items-center gap-1 ${className}`}>
         <span
-          title={`依座標與平均車速推算的累計車程約 ${entry.travelMinutes} 分鐘`}
+          title={travelTitle}
           className="chip bg-sky-50 px-1.5 py-0 tabular-nums text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
         >
-          +{entry.travelMinutes} 分鐘車程
+          {t('plan.chipTravel', { n: entry.travelMinutes })}
         </span>
       </span>
     )
@@ -134,21 +144,19 @@ export function TravelPlanChips({ entry, className = '' }) {
   return (
     <span className={`flex flex-wrap items-center gap-1 ${className}`}>
       <span
-        title={`依座標與平均車速推算的累計車程約 ${entry.travelMinutes} 分鐘`}
+        title={travelTitle}
         className="chip bg-sky-50 px-1.5 py-0 tabular-nums text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
       >
-        +{entry.travelMinutes} 分
+        {t('plan.chipTravelShort', { n: entry.travelMinutes })}
       </span>
       <span
         title={
-          entry.source === 'live'
-            ? '依該站官方實時到站時間推算（推測為同一班車，仍可能有偏差）'
-            : '依車程推算的預計到達時間，實際仍受路況影響'
+          entry.source === 'live' ? t('plan.chipLiveTitle') : t('plan.chipEstimateTitle')
         }
         className="chip bg-emerald-50 px-1.5 py-0 tabular-nums text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
       >
         <Clock className="h-3 w-3" aria-hidden="true" />
-        {formatClock(entry.arrivalMs)} 到達
+        {t('plan.chipArrive', { time: formatClock(entry.arrivalMs) })}
       </span>
     </span>
   )

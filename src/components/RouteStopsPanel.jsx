@@ -5,6 +5,7 @@ import StopSection from './StopSection.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from './StateViews.jsx'
 import { TravelPlanBanner, TravelPlanToggle } from './TravelPlan.jsx'
 import { favoriteKey } from '../hooks/useFavorites.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { formatClock } from '../utils/format.js'
 import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
 
@@ -42,6 +43,7 @@ export default function RouteStopsPanel({
   onRetry,
   etaUpdatedAt = null,
 }) {
+  const { t, pickLang } = useLanguage()
   const [planEnabled, setPlanEnabled] = useState(false)
 
   // 各站已取得的實時 ETA：只涵蓋「已展開」的站點（搜尋頁以批次查詢，不額外發請求）
@@ -99,10 +101,10 @@ export default function RouteStopsPanel({
 
   const baseLabel =
     travelPlan?.baseTime != null
-      ? `推算基準 · ${formatClock(travelPlan.baseTime)} 到站`
+      ? t('route.planBaseArrival', { time: formatClock(travelPlan.baseTime) })
       : planBaseLoading
-        ? '推算基準（正在取得班次…）'
-        : '推算基準（暫無實時班次）'
+        ? t('route.planBaseLoading')
+        : t('route.planBaseNone')
 
   return (
     <section className="space-y-2">
@@ -114,7 +116,7 @@ export default function RouteStopsPanel({
           <button
             type="button"
             onClick={onBack}
-            aria-label="返回路線搜尋"
+            aria-label={t('panel.backAria')}
             className="rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -126,21 +128,21 @@ export default function RouteStopsPanel({
               </span>
               <OperatorBadge operator={selected.operator} />
               <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {selected.direction === 'inbound' ? '回程' : '去程'}
+                {selected.direction === 'inbound'
+                  ? t('direction.inbound')
+                  : t('direction.outbound')}
               </span>
             </p>
             <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
               <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
               <span className="truncate">
-                {selected.orig} → {selected.destination}
+                {pickLang(selected.orig, selected.origEn)} →{' '}
+                {pickLang(selected.destination, selected.destinationEn)}
               </span>
-              {status === 'ready' && <span className="shrink-0">· {stops.length} 站</span>}
+              {status === 'ready' && (
+                <span className="shrink-0">· {t('common.stops', { n: stops.length })}</span>
+              )}
             </p>
-            {selected.origEn && selected.destinationEn && (
-              <p className="mt-0.5 truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                {selected.origEn} → {selected.destinationEn}
-              </p>
-            )}
           </div>
         </div>
 
@@ -159,7 +161,7 @@ export default function RouteStopsPanel({
       {status === 'error' && <ErrorState message={error} onRetry={onRetry} />}
 
       {status === 'ready' && stops.length === 0 && (
-        <EmptyState title="此方向暫無站點資料" description="請返回上一頁選擇其他方向。" />
+        <EmptyState title={t('panel.emptyTitle')} description={t('panel.emptyDesc')} />
       )}
 
       {status === 'ready' && stops.length > 0 && (

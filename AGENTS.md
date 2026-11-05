@@ -59,10 +59,10 @@ codegraph impact <symbol>                 # 改動影響範圍（改 API／hook 
 
 ```
 src/
-├─ App.jsx            # Router（basename 跟隨 BASE_URL）＋ 版面；/route/* 為路線站序頁（不經 AppShell）
+├─ App.jsx            # LanguageProvider＋Router（basename 跟隨 BASE_URL）＋毛玻璃膠囊 Header 與版面；/route/* 為路線站序頁（不經 AppShell）
 ├─ pages/             # Nearby / Search / Favorites / RouteSequence（路線站序頁，原視窗導覽）
 ├─ components/        # BusCard、StopSection、EtaSlots、StateViews…（純呈現）
-├─ hooks/             # useBusData（ETA 30 秒輪詢）、useLocation、useFavorites、useTheme
+├─ hooks/             # useBusData（ETA 30 秒輪詢）、useLanguage（語言 Context）、useLocation、useFavorites、useTheme
 ├─ services/api.js    # 唯一資料層：快取、站點、路線站序、票價、ETA（KMB/CTB/GMB）
 ├─ services/staticData.js # public/data/*.json + IndexedDB 快取
 ├─ utils/             # format.js、routeLinks.js（站序頁的站內路徑組裝）
@@ -99,6 +99,9 @@ src/
 - **定位記憶**：`useLocation` 以 `hkb:location-consent`（只存 `'granted'`）與 `hkb:last-location`
   （`{ lat, lng, accuracy, updatedAt }`）記憶授權與座標，讀寫一律 `try / catch`；初始化先用快取座標渲染再背景更新，
   不要改回「每次都要使用者手動點定位」。被拒（`error.code === 1`）時清除授權記憶並保留 iOS 的 Safari 設定提示。
+- **語言切換**：UI 文案一律經 `useLanguage()` 的 `t('key')`（字典在 `src/hooks/useLanguage.js`），
+  站名／目的地用 `pickLang(nameTc, nameEn)` 只顯示單一語言；**不要**再新增中英上下堆疊。新增文案要同時補齊字典的
+  `zh`／`en` 兩欄。語言存 `hkb:lang`（只接受 `'zh'`／`'en'`，預設 `'zh'`），讀寫包 `try / catch`。
 - **字級**：站點名稱用 `text-lg`（18px）；路線號碼在卡片／標題用 `text-xl`（20px）、
   在搜尋結果與站序面板標題用 `text-lg`（18px）。改版面時保持這組層級。
 
@@ -107,6 +110,7 @@ src/
 - UI 文案與註解以**繁體中文**為主；程式碼使用 2 空格、單引號、無分號（現有風格）。
 - 樣式一律 Tailwind utility class，共用外觀用 `index.css` 的 `.card`、`.chip`、`.skeleton`。
 - 顏色需同時支援 `dark:`；不要新增全域 CSS 除非必要。
+- 視覺為「款式 B」：毛玻璃膠囊 Header／懸浮島 Dock、藍紫漸層選中態；沿用現有 Tailwind class，不要改回全寬實色導覽列。
 - 元件保持「呈現」與「資料抓取」分離：抓資料放 hook 或 page，純呈現放 components。
 - 不要新增依賴，除非能明確說明 bundle／維護成本；優先使用現有 `lucide-react` 圖示。
 - 所有非同步資料載入要有 loading／error／empty 狀態（`StateViews.jsx`）。

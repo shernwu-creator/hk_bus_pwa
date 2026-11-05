@@ -6,6 +6,8 @@
 
 站點內點選任一路線，會在**原視窗**直接切換到該方向的全線站序：自動標示你開啟時所在的站點並展開最近三班車，其他站點可逐一展開查看，也可一鍵**反轉方向**查另一邊的車；只有 Google Maps 外部連結仍會另開新頁／喚醒 App。
 
+全站提供 `[中 | EN]` 單語切換（預設繁體中文，記在 localStorage 的 `hkb:lang`）：站名、目的地與介面文案只顯示目前語言，不再中英上下堆疊。視覺採用款式 B：冰藍／午夜漸層背景＋環境光暈、毛玻璃膠囊 Header 與底部懸浮島 Dock。
+
 資料全部來自 [DATA.GOV.HK](https://data.gov.hk/) 的公開 API，本專案非官方產品；地圖圖磚由 [OpenStreetMap](https://www.openstreetmap.org/) 提供（使用政策：<https://operations.osmfoundation.org/policies/tiles/>）。
 開發規範（AI 代理必讀）見 [`AGENTS.md`](./AGENTS.md)：優先使用 CodeGraph 探索程式結構，禁止大範圍 grep 與讀檔。
 
@@ -133,8 +135,8 @@ npm run sync:data
 ```
 src/
 ├─ main.jsx                  # 掛載 App、註冊 Service Worker（vite-plugin-pwa）
-├─ App.jsx                   # Router（basename 跟隨 BASE_URL）＋版面；頁面以 React.lazy 分 chunk；Header 高度寫入 --app-header-h 供頁內 sticky 工具列使用
-├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip）
+├─ App.jsx                   # LanguageProvider＋Router（basename 跟隨 BASE_URL）＋版面；毛玻璃膠囊 Header（語言／日夜切換）；Header 高度寫入 --app-header-h 供頁內 sticky 工具列使用
+├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip；body 漸層背景）
 ├─ pages/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
 │  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 站序 → ETA
@@ -147,9 +149,11 @@ src/
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header 下方）
-│  ├─ SearchBar.jsx / OperatorBadge.jsx / BottomNav.jsx
+│  ├─ SearchBar.jsx / OperatorBadge.jsx
+│  ├─ BottomNav.jsx          # 底部懸浮島 Dock（毛玻璃膠囊、選中 Tab 藍紫漸層）
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
 ├─ hooks/
+│  ├─ useLanguage.js         # 語言 Context：localStorage「hkb:lang」、t() 字典、pickLang() 單語站名／目的地
 │  ├─ useLocation.js         # Geolocation + 權限/錯誤狀態＋localStorage 授權記憶與座標快取
 │  ├─ useBusData.js          # ETA 抓取與 30 秒輪詢（Promise.allSettled；切到背景停止、回前景立即更新）＋路線卡排序用的剩餘距離
 │  ├─ useFavorites.js        # localStorage「hkb:favorites:v1」（含 routes / siblingIds）
@@ -160,7 +164,7 @@ src/
 ├─ data/
 │  └─ fares.json             # 由 sync:data 產生（請勿手改）
 └─ utils/
-   ├─ format.js              # 距離／時間／分鐘／服務類型文字；normalizeStopName()／stopPlatformCode() 清理站名代號
+   ├─ format.js              # 距離／時間／分鐘／服務類型文字（距離與服務類型可依語言輸出）；normalizeStopName()／stopPlatformCode() 清理站名代號
    ├─ travelPlan.js          # 車程／預計到達推算（幾何估算＋實時 ETA 校準；車速、繞行係數、停站時間等參數集中在這裡）
    ├─ routeOrder.js          # 站點內路線卡排序（剩餘距離長途優先、終點站最後）
    └─ routeLinks.js          # 路線站序頁的站內路徑組裝（交給 useNavigate；basename 由 Router 處理）
@@ -393,6 +397,23 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 4. **拒絕（`error.code === 1`）**：清除 `hkb:location-consent`，錯誤訊息附上 iOS 操作提示
    （Safari 網址列左側「網站設定 › 位置 › 允許」，或把本站「加入主畫面」後重新允許）。
 
+### 6.11 語言切換與單語顯示（useLanguage）
+
+`[中 | EN]` 切換由 `src/hooks/useLanguage.js` 的 React Context 提供（`LanguageProvider` 包住 Router），
+切換後全站即時更新，並持久化在 localStorage 的 `hkb:lang`（只接受 `'zh'`／`'en'`，預設 `'zh'`）。
+
+| Key | 值 | 說明 |
+| --- | --- | --- |
+| `hkb:lang` | `'zh'`／`'en'` | 其他值一律退回 `'zh'`；讀寫以 `try / catch` 包覆 |
+
+- **單語顯示**：站名與目的地一律用 `pickLang(nameTc, nameEn)`（中文模式回傳 `tcText || enText`、英文模式回傳
+  `enText || tcText`），`StopSection`／`BusCard`／`RouteStopsPanel`／`RouteSequence`／`Search` 不再顯示英文小字行。
+- **UI 字典**：`t('key', params)` 集中管理導覽（附近／搜尋／收藏）、票價、分鐘、Google Maps、反轉方向、
+  推算各站到站時間、錯誤與空狀態等文案；`{name}` 會被 params 取代。新增文案時必須同時補中英兩欄。
+- **動態資料**：目的地用 API 的 `dest_tc`／`dest_en`（KMB／CTB／GMB 皆有），站名用 `nameTc`／`nameEn`；
+  路線卡、站序頁標題與 ETA「往 X」標籤都會跟隨語言。
+- **尚未翻譯**：服務層產生的動態錯誤訊息（例如網絡錯誤）仍是繁體中文，切換語言不會改寫已產生的錯誤字串（見第 8 節）。
+
 ---
 
 ## 7. PWA 設定
@@ -425,6 +446,8 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
   幾何門檻（相距 ≥ 1/3 條路線）會讓部分循環線的中段重複站名不拆分，例如 26M 聯合醫院 seq11／16、和樂邨 seq13／15（相距 < 26÷3 站），卡片仍會混方向且無「往 X」標示（保守策略，避免標錯方向）。若九巴站點清單（`/stop`，約 1 MB）暫時 403，站序頁拿不到站名／座標就無法自動帶入同名月台，循環線方向標示會退回原狀（ETA 仍正常顯示）。
 - **路線卡「長途優先」排序需要額外抓路線站序**：展開站點時會先以到站時間顯示路線卡，再於背景為該站各路線抓取 `/route-stop`（同時最多 6 條；單條最多等 6 秒、整批上限 8 秒），補到剩餘距離後重排一次，因此路線順序可能在展開後約 1～2 秒內變動。繁忙站點（城巴實測一站可達 25 條路線）若在 8 秒內算不完，未完成的路線這輪先維持到站時間排序，下一次 30 秒輪詢或站序快取命中後會補上。同一路線站序在同一瀏覽工作階段只抓一次（記憶體快取，重新載入頁面後失效）。站序讀取失敗或逾時的路線這輪沒有 `progress`、退回以到站時間排序；有 `progress` 但缺座標（例如九巴 `/stop` 暫時 403）時改以剩餘站數排序（仍長途優先），ETA 仍正常顯示。
 - **iOS 定位授權**：Safari 沒有 Permissions API，`hkb:location-consent`／`hkb:last-location` 只存在本機瀏覽器；清除網站資料、換瀏覽器或換裝置後會重新詢問一次。若使用者在系統層拒絕定位，站內只能顯示提示與預設／上次位置，需到 Safari 網站設定或系統設定重新允許（見 6.10）。
+- **語言只涵蓋介面與站名／目的地**：`useLanguage` 的字典覆蓋所有靜態 UI 文案與 API 提供的 `nameTc`／`nameEn`、`dest_tc`／`dest_en`；服務層動態錯誤訊息（例如網絡失敗）仍以繁體中文顯示，切換語言不會翻譯已產生的錯誤字串（見 6.11）。
+- **`hkb:lang`**：只接受 `'zh'`／`'en'`，其他值退回 `'zh'`；與 `hkb:theme`、`hkb:favorites:v1` 一樣只存在本機。
 - **反轉方向的站點對應是「盡力而為」**：本車站（含月台）以站名、再用 200 公尺內座標在反向站序中找回；若另一方向不停靠附近位置，只顯示站序、不標示「本站」。九巴反轉後該站 ETA 只查單一月台（原方向仍會合併 `siblingIds` 月台）。
 - **收藏站點分組是「盡力而為」**：同名但相距 > 500 公尺的收藏會分開（實測九巴同名站點約 0.9% 屬於此類，最遠可達 50 公里）；判定方式是「與群組內任一站位距離 ≤ 500 公尺」，所以同名站點可能透過中間站位串成一組（A–B 400m、B–C 400m、A–C 800m 仍同組）。舊收藏沒有座標時只靠同名合併，無法判斷是否同一地點；站名尾端的代號／月台後綴只處理常見格式（`(YT123)`、`- 3號月台` 等），代號須含數字、其他寫法可能仍被視為不同站名。名稱相似度門檻（0.95）仍可能把同站不同座數／出口當成同一組（例如上水站 D1／D2 出口），反向也可能漏併命名差異大或順序顛倒的跨業者同站（例如「賽西湖大廈, 寶馬山道」與「寶馬山道, 賽西湖大廈外」）。展開群組會多打幾個站位的 ETA 請求：每個站位各自最多再多查 5 個月台，跨站位重複的站牌不會再去重（群組 k 個站位最多約 k×6 次站點請求），且沿用 `Promise.allSettled`，單一站失敗不影響其他站位。
 - **小巴反向 variant**：同一路線號碼可能有多個 `route_id`（不同班次描述），反轉時以起訖站互換＋相反 `route_seq` 評分挑選；單向行駛的 variant 會顯示「找不到另一方向」。
@@ -495,4 +518,6 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **搜尋車號搜出站序後，往下滑就找不到「返回」與「推算各站到站時間」** | `RouteStopsPanel` 把「路線資訊＋返回按鈕」與「推算切換鈕」包成 sticky 工具列（`top-[var(--app-header-h)]`、`z-10`、半透明背景＋backdrop blur），貼在主殼 sticky Header 下緣，長站序滑到任何位置都能直接返回或開關推算；Header 高度由 `App.jsx` 以 `ResizeObserver` 量測後寫入 `--app-header-h`（`index.css` 有量測前的後備值），改 Header 版面不必同步改其他頁。`Search` 開啟站序面板時捲回頂端，返回清單時（`requestAnimationFrame` 後）還原原本的捲動位置。 |
 | **站內導覽應在原視窗切換** | `routeLinks.js` 的 `openRouteSequence()`（`window.open`）改為 `buildRouteSequencePath()`；`StopSection` 以 `useNavigate()` 原視窗切換站序頁，`BusCard` 提示改為「查看全線站序」，`App.jsx` 新增 `ScrollToTop`（PUSH／REPLACE 捲回頂部，POP 保留瀏覽器還原的捲動位置）。Google Maps 外部連結維持 `target="_blank" rel="noopener noreferrer"`。`RouteSequence` 移除 `window.opener`／`window.close()`，返回改以 `history.state.idx`／`history.length` 判斷。 |
 | **iOS 每次開啟都要重新點定位** | `useLocation` 新增 `hkb:location-consent`／`hkb:last-location` 記憶：成功定位即寫入，初始化先用快取座標渲染並背景更新；已授權或 Permissions API 回報 `granted` 時自動 `getCurrentPosition`；`PERMISSION_DENIED` 清除授權記憶並提示 iOS 的 Safari「網站設定 › 位置 › 允許」或「加入主畫面」（見 6.10）。 |
+| **站名與目的地中英上下堆疊太亂** | 新增 `useLanguage`（`hkb:lang`）：`pickLang()` 只輸出目前語言，`StopSection`／`BusCard`／`RouteStopsPanel`／`RouteSequence`／`Search` 移除英文小字行；UI 文案改用 `t()` 字典（導覽、票價、分鐘、Google Maps、反轉方向、推算、錯誤按鈕等）。 |
+| **改成款式 B 毛玻璃設計** | 全站冰藍／午夜漸層背景＋`pointer-events-none` 光暈；頂部改毛玻璃膠囊 Header（`rounded-[22px]`、`bg-white/85 backdrop-blur-xl`），右側 `[中 | EN]` 分段切換與日夜按鈕；`BottomNav` 改底部懸浮島 Dock（`fixed bottom-3 inset-x-4 mx-auto max-w-sm rounded-full`、選中 Tab 藍紫漸層）。 |
 

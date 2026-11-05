@@ -5,6 +5,7 @@ import StopSection from '../components/StopSection.jsx'
 import { EmptyState } from '../components/StateViews.jsx'
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { distanceInMeters } from '../services/api.js'
 import { formatDateTime, normalizeStopName } from '../utils/format.js'
 
@@ -204,6 +205,7 @@ function mergeEtaResults(results) {
  */
 export default function Favorites() {
   const { favorites, removeFavorite, clearFavorites } = useFavorites()
+  const { t } = useLanguage()
   // 可同時展開多個收藏站點群組
   const [expandedKeys, setExpandedKeys] = useState(() => new Set())
 
@@ -248,7 +250,7 @@ export default function Favorites() {
         const error = results.length > 0 && failed.length === results.length ? failed[0].error : null
         const warning =
           failed.length > 0 && failed.length < results.length
-            ? `${failed.length} 個站位暫時讀取失敗，僅顯示可用的班次`
+            ? t('saved.partialFail', { n: failed.length })
             : null
         const merged = mergeEtaResults(results)
 
@@ -265,7 +267,7 @@ export default function Favorites() {
           },
         }
       }),
-    [groups, expandedKeys, etaByKey],
+    [groups, expandedKeys, etaByKey, t],
   )
 
   const handleToggleGroup = useCallback((key) => {
@@ -314,7 +316,7 @@ export default function Favorites() {
 
   const handleClear = () => {
     if (!favorites.length) return
-    if (window.confirm('確定要清除全部收藏站點嗎？')) {
+    if (window.confirm(t('saved.confirm'))) {
       clearFavorites()
       setExpandedKeys(new Set())
     }
@@ -328,14 +330,12 @@ export default function Favorites() {
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            已收藏 {uniqueCount} 個站點
+            {t('saved.title', { n: uniqueCount })}
             {groups.length > 0 && groups.length < uniqueCount
-              ? `（整合為 ${groups.length} 個車站）`
+              ? t('saved.grouped', { n: groups.length })
               : ''}
           </p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            收藏只儲存在此裝置，不會同步到其他裝置
-          </p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('saved.note')}</p>
         </div>
         {favorites.length > 0 && (
           <button
@@ -344,7 +344,7 @@ export default function Favorites() {
             className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            清除
+            {t('saved.clear')}
           </button>
         )}
       </section>
@@ -355,14 +355,14 @@ export default function Favorites() {
 
       {favorites.length === 0 ? (
         <EmptyState
-          title="尚未收藏站點"
-          description="在附近或路線站序清單中點選星號，即可把常用站點加入收藏，下次開啟 App 立即查看。"
+          title={t('saved.emptyTitle')}
+          description={t('saved.emptyDesc')}
           action={
             <Link
               to="/"
               className="mt-1 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-white dark:text-slate-900"
             >
-              前往附近站點
+              {t('saved.goNearby')}
             </Link>
           }
         />
@@ -387,7 +387,7 @@ export default function Favorites() {
 
       {favorites.length > 0 && (
         <p className="px-1 pb-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
-          最近收藏：{formatDateTime(favorites[0].savedAt)}
+          {t('saved.latest', { time: formatDateTime(favorites[0].savedAt) })}
         </p>
       )}
     </div>

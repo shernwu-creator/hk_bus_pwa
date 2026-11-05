@@ -6,6 +6,7 @@ import OperatorBadge from './OperatorBadge.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
 import { TravelPlanChips } from './TravelPlan.jsx'
 import { favoriteKey } from '../hooks/useFavorites.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { formatDistance, stopPlatformCode } from '../utils/format.js'
 import { buildRouteSequencePath } from '../utils/routeLinks.js'
 import { sortRoutes } from '../utils/routeOrder.js'
@@ -17,6 +18,7 @@ function routeEntryKey(entry) {
 
 /**
  * 單一站點區塊：站名＋距離＋收藏，展開後列出各路線 ETA
+ * 站名只顯示目前語言（`pickLang`），不再中英上下堆疊；
  * 點路線卡片會在原視窗切換到完整站序頁（見 src/utils/routeLinks.js），不再行內展開。
  *
  * 傳入 `stops`（同一車站的多個已收藏站位）時會以「群組」形式顯示：
@@ -54,6 +56,7 @@ export default function StopSection({
   planBaseLabel = null,
 }) {
   const navigate = useNavigate()
+  const { lang, t, pickLang } = useLanguage()
   const [showAll, setShowAll] = useState(false)
   const sortedRoutes = useMemo(() => sortRoutes(group?.routes ?? []), [group?.routes])
   // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
@@ -69,12 +72,13 @@ export default function StopSection({
     }
     // 依目的地字串排序決定固定色調順序，避免班次更新、到站時間改變時同一目的地換色
     for (const destinations of byRoute.values()) {
-      destinations.sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+      destinations.sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh-Hant'))
     }
     return byRoute
-  }, [sortedRoutes])
+  }, [sortedRoutes, lang])
   const routeStops = group?.routeStops
   const stop = group?.stop ?? {}
+  const stopName = pickLang(stop.nameTc, stop.nameEn) || stop.id || ''
   const visibleRoutes = showAll ? sortedRoutes : sortedRoutes.slice(0, 6)
   // 循環線同一站名可能出現兩次（站序不同），DOM id 帶上 seq 才不會重複
   const bodyId = `stop-body-${stop.operator}-${stop.id}-${seq ?? ''}`
@@ -91,9 +95,9 @@ export default function StopSection({
   const operators = [...new Set(members.map((member) => member.operator).filter(Boolean))]
   const favoriteLabel = isFavorite
     ? multiStop
-      ? `取消收藏整個群組（${members.length} 個站位）`
-      : '取消收藏此站'
-    : '收藏此站'
+      ? t('stop.unfavoriteGroup', { n: members.length })
+      : t('stop.unfavorite')
+    : t('stop.favorite')
 
   const handleToggle = () => {
     onToggle?.()
@@ -130,22 +134,19 @@ export default function StopSection({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-lg font-semibold leading-snug text-slate-900 dark:text-slate-100">
-              {stop.nameTc || stop.nameEn || stop.id}
+              {stopName}
             </span>
-            {stop.nameTc && stop.nameEn && (
-              <span className="block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                {stop.nameEn}
-              </span>
-            )}
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               {operators.map((operator) => (
                 <OperatorBadge key={operator} operator={operator} />
               ))}
-              {Number.isFinite(distance) && <span>· {formatDistance(distance)}</span>}
+              {Number.isFinite(distance) && <span>· {formatDistance(distance, lang)}</span>}
               {multiStop ? (
-                <span>· {members.length} 個站位</span>
+                <span>· {t('stop.platforms', { n: members.length })}</span>
               ) : (
-                stop.routes?.length > 0 && <span>· {stop.routes.length} 條路線</span>
+                stop.routes?.length > 0 && (
+                  <span>· {t('stop.routes', { n: stop.routes.length })}</span>
+                )
               )}
             </span>
             {grouped && platformCodes.length > 0 && (
@@ -180,7 +181,7 @@ export default function StopSection({
             onClick={() => onToggleFavorite(stop)}
             aria-label={favoriteLabel}
             aria-pressed={isFavorite}
-            title={multiStop && isFavorite ? '取消收藏整個群組' : undefined}
+            title={multiStop && isFavorite ? t('stop.unfavoriteGroup', { n: members.length }) : undefined}
             className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-amber-500 dark:hover:bg-slate-800"
           >
             <Star
@@ -193,7 +194,7 @@ export default function StopSection({
         <button
           type="button"
           onClick={handleToggle}
-          aria-label={expanded ? '收起路線' : '展開路線'}
+          aria-label={expanded ? t('stop.collapse') : t('stop.expand')}
           className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <ChevronDown
@@ -207,14 +208,17 @@ export default function StopSection({
         <div id={bodyId} className="space-y-2 border-t border-slate-100 px-3 py-2.5 dark:border-slate-800">
           {multiStop && onRemoveStop && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">此群組站位</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                {t('stop.groupTitle')}
+              </span>
               {members.map((member, index) => {
                 const code = stopPlatformCode(member.nameTc)
-                const memberLabel = code || `站位 ${index + 1}`
+                const memberLabel = code || t('stop.platform', { n: index + 1 })
+                const memberName = pickLang(member.nameTc, member.nameEn) || member.id
                 return (
                   <span
                     key={favoriteKey(member)}
-                    title={member.nameTc || member.nameEn || member.id}
+                    title={memberName}
                     className="chip gap-1 bg-white pl-1.5 pr-0.5 text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-300"
                   >
                     <OperatorBadge operator={member.operator} />
@@ -222,8 +226,8 @@ export default function StopSection({
                     <button
                       type="button"
                       onClick={() => onRemoveStop(member)}
-                      aria-label={`取消收藏 ${member.nameTc || member.nameEn || member.id}`}
-                      title="取消收藏此站位"
+                      aria-label={t('stop.removeFavorite', { name: memberName })}
+                      title={t('stop.removeFavoriteTitle')}
                       className="rounded-full p-0.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
                     >
                       <X className="h-3 w-3" aria-hidden="true" />
@@ -237,7 +241,7 @@ export default function StopSection({
           {loading && sortedRoutes.length === 0 && <RouteSkeleton rows={2} />}
 
           {!loading && group.error && (
-            <ErrorState title="此站點讀取失敗" message={group.error} onRetry={onRetry} />
+            <ErrorState title={t('stop.errorTitle')} message={group.error} onRetry={onRetry} />
           )}
 
           {!loading && group.warning && (
@@ -247,10 +251,7 @@ export default function StopSection({
           )}
 
           {!loading && !group.error && sortedRoutes.length === 0 && (
-            <EmptyState
-              title="暫無到站資料"
-              description="此站點目前沒有可查詢的路線，或所有路線均已收班。"
-            />
+            <EmptyState title={t('stop.emptyTitle')} description={t('stop.emptyDesc')} />
           )}
 
           {sortedRoutes.length > 0 && (
@@ -277,7 +278,7 @@ export default function StopSection({
                   onClick={handleShowAll}
                   className="w-full rounded-xl border border-dashed border-slate-200 py-2 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                 >
-                  {showAll ? '只顯示最近 6 條路線' : `顯示全部 ${sortedRoutes.length} 條路線`}
+                  {showAll ? t('stop.showLess') : t('stop.showAll', { n: sortedRoutes.length })}
                 </button>
               )}
             </>

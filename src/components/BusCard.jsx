@@ -1,6 +1,7 @@
 import { ArrowUpRight, BusFront, ChevronRight } from 'lucide-react'
 import EtaSlots from './EtaSlots.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
+import useLanguage from '../hooks/useLanguage.js'
 import { serviceTypeLabel } from '../utils/format.js'
 
 /**
@@ -39,6 +40,7 @@ const DESTINATION_TONES = [
  * 巴士路線／ETA 顯示卡片
  * 內容：業者標籤、路線號碼、方向、上車收費，以及並排的最近三班車倒數
  *
+ * 站名與目的地只顯示目前語言（`pickLang`），不再中英上下堆疊。
  * 傳入 onClick 時整張卡片可點擊，由父層決定行為（目前是在原視窗切換到全線站序頁）。
  *
  * @param {object} props
@@ -49,10 +51,12 @@ const DESTINATION_TONES = [
  *        傳 null／不傳代表只有單一目的地，維持原本簡潔的 UI。
  */
 export default function BusCard({ entry, onClick, destinationVariant = null }) {
+  const { lang, t, pickLang } = useLanguage()
   if (!entry) return null
-  const { route, operator, destination, fare, serviceType, etas = [] } = entry
+  const { route, operator, destination, destinationEn, fare, serviceType, etas = [] } = entry
   const lastBus = etas.some((eta) => eta.remark?.includes('最後'))
-  const special = serviceTypeLabel(serviceType)
+  const special = serviceTypeLabel(serviceType, lang)
+  const destinationLabel = pickLang(destination, destinationEn) || t('bus.destinationUnknown')
   const variant = Number.isInteger(destinationVariant) ? destinationVariant : null
   const tone = variant == null ? null : DESTINATION_TONES[variant % DESTINATION_TONES.length]
   const showDestination = variant != null
@@ -78,7 +82,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
               aria-hidden="true"
             />
             <span className="flex min-w-0 items-center gap-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
-              <span className="truncate">{destination || '目的地未提供'}</span>
+              <span className="truncate">{destinationLabel}</span>
               <ArrowUpRight
                 className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500"
                 aria-hidden="true"
@@ -88,9 +92,9 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
 
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
             <span>
-              上車收費{' '}
+              {t('bus.fare')}{' '}
               <span className="font-semibold text-slate-700 dark:text-slate-200">
-                {Number.isFinite(fare) ? `HK$${fare.toFixed(1)}` : '票價待查'}
+                {Number.isFinite(fare) ? `HK$${fare.toFixed(1)}` : t('bus.fareUnknown')}
               </span>
             </span>
             {special && (
@@ -100,7 +104,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
             )}
             {lastBus && (
               <span className="chip bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
-                最後班次
+                {t('bus.last')}
               </span>
             )}
           </span>
@@ -108,7 +112,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
           <EtaSlots
             etas={etas}
             className="mt-2"
-            destination={destination}
+            destination={destinationLabel}
             showDestination={showDestination}
             tone={tone}
           />
@@ -118,7 +122,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
       {onClick && (
         <span className="mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
           <ChevronRight className="h-3 w-3" aria-hidden="true" />
-          查看全線站序
+          {t('bus.viewRoute')}
         </span>
       )}
     </>
@@ -134,7 +138,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
         <button
           type="button"
           onClick={onClick}
-          aria-label={`${route} 往 ${destination || '目的地'}：查看全線站序`}
+          aria-label={t('bus.viewRouteAria', { route, dest: destinationLabel })}
           className="block w-full text-left"
         >
           {body}

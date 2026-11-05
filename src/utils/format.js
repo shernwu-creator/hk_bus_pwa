@@ -1,8 +1,9 @@
 /** 距離顯示：< 1 公里用公尺，之後用小數一位公里 */
-export function formatDistance(meters) {
+export function formatDistance(meters, lang = 'zh') {
   if (!Number.isFinite(meters)) return ''
-  if (meters < 1000) return `${Math.round(meters)} 公尺`
-  return `${(meters / 1000).toFixed(1)} 公里`
+  const isEn = lang === 'en'
+  if (meters < 1000) return `${Math.round(meters)} ${isEn ? 'm' : '公尺'}`
+  return `${(meters / 1000).toFixed(1)} ${isEn ? 'km' : '公里'}`
 }
 
 const pad = (value) => String(value).padStart(2, '0')
@@ -24,15 +25,18 @@ export function formatDateTime(value) {
 }
 
 /** 剩餘分鐘轉成 UI 文字 */
-export function formatMinutes(minutes) {
-  if (minutes == null) return '未有班次'
-  if (minutes <= 0) return '即將到站'
-  return `${minutes} 分鐘`
+export function formatMinutes(minutes, lang = 'zh') {
+  const isEn = lang === 'en'
+  if (minutes == null) return isEn ? 'No service' : '未有班次'
+  if (minutes <= 0) return isEn ? 'Arriving' : '即將到站'
+  return isEn ? `${minutes} min` : `${minutes} 分鐘`
 }
 
 /** 服務類型：1 為正常班次，其他視為特別班次 */
-export function serviceTypeLabel(serviceType) {
-  return String(serviceType ?? '1') === '1' ? '' : `特別班次 ${serviceType}`
+export function serviceTypeLabel(serviceType, lang = 'zh') {
+  const value = String(serviceType ?? '1')
+  if (value === '1') return ''
+  return lang === 'en' ? `Special ${value}` : `特別班次 ${value}`
 }
 
 /* ------------------------------------------------------------------ */

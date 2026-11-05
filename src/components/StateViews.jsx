@@ -1,4 +1,5 @@
 import { CircleAlert, Info, RefreshCw } from 'lucide-react'
+import useLanguage from '../hooks/useLanguage.js'
 
 /** 路線卡片的骨架屏（載入中） */
 export function RouteSkeleton({ rows = 3 }) {
@@ -45,11 +46,14 @@ export function StopSkeleton({ rows = 4 }) {
 }
 
 /** API 失敗狀態（含重試） */
-export function ErrorState({ title = '資料讀取失敗', message, onRetry }) {
+export function ErrorState({ title, message, onRetry }) {
+  const { t } = useLanguage()
   return (
     <div className="card flex flex-col items-center gap-2 p-5 text-center">
       <CircleAlert className="h-6 w-6 text-rose-500" aria-hidden="true" />
-      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</p>
+      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {title ?? t('common.errorTitle')}
+      </p>
       {message && <p className="text-xs text-slate-500 dark:text-slate-400">{message}</p>}
       {onRetry && (
         <button
@@ -58,7 +62,7 @@ export function ErrorState({ title = '資料讀取失敗', message, onRetry }) {
           className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
         >
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          重新載入
+          {t('common.reload')}
         </button>
       )}
     </div>

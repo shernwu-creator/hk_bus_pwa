@@ -1,33 +1,38 @@
 import { NavLink } from 'react-router-dom'
 import { MapPin, Star, Search } from 'lucide-react'
+import useLanguage from '../hooks/useLanguage.js'
 
 const TABS = [
-  { to: '/', label: '附近', icon: MapPin, end: true },
-  { to: '/search', label: '搜尋', icon: Search, end: false },
-  { to: '/favorites', label: '收藏', icon: Star, end: false },
+  { to: '/', labelKey: 'nav.nearby', icon: MapPin, end: true },
+  { to: '/search', labelKey: 'nav.search', icon: Search, end: false },
+  { to: '/favorites', labelKey: 'nav.favorites', icon: Star, end: false },
 ]
 
 /**
- * 手機優先的底部導覽列（固定在安全區域上方）
+ * 款式 B 底部懸浮島 Dock：毛玻璃膠囊、距底部保留安全間距，
+ * 選中的 Tab 套用藍紫漸層膠囊。
  */
 export default function BottomNav() {
+  const { t } = useLanguage()
+
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/90 pb-safe backdrop-blur-lg dark:border-slate-800 dark:bg-slate-900/90"
-      aria-label="主要導覽"
+      aria-label={t('nav.main')}
+      style={{ bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
+      className="fixed inset-x-4 bottom-3 z-30 mx-auto max-w-sm rounded-full border border-white/80 bg-white/90 p-1.5 shadow-lg backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-800/90"
     >
-      <ul className="mx-auto flex max-w-md items-stretch">
-        {TABS.map(({ to, label, icon: Icon, end }) => (
+      <ul className="flex items-stretch gap-1">
+        {TABS.map(({ to, labelKey, icon: Icon, end }) => (
           <li key={to} className="flex-1">
             <NavLink
               to={to}
               end={end}
               className={({ isActive }) =>
                 [
-                  'flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition',
+                  'flex flex-col items-center gap-0.5 rounded-full py-2 text-[11px] transition',
                   isActive
-                    ? 'text-sky-600 dark:text-sky-400'
-                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100',
+                    ? 'bg-gradient-to-r from-sky-500 to-indigo-500 font-extrabold text-white shadow-sm'
+                    : 'font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100',
                 ].join(' ')
               }
             >
@@ -37,7 +42,7 @@ export default function BottomNav() {
                     className={`h-5 w-5 ${isActive ? 'stroke-[2.4]' : ''}`}
                     aria-hidden="true"
                   />
-                  {label}
+                  {t(labelKey)}
                 </>
               )}
             </NavLink>

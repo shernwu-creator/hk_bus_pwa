@@ -3,6 +3,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { ExternalLink, LocateFixed } from 'lucide-react'
 import useTheme from '../hooks/useTheme.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { favoriteKey } from '../hooks/useFavorites.js'
 
 /**
@@ -97,6 +98,7 @@ export default function StopMap({
   locating = false,
 }) {
   const isDark = useIsDark()
+  const { t, pickLang } = useLanguage()
   const mapElRef = useRef(null)
   const mapRef = useRef(null)
   // 只有第一次掛載時需要初始視角，之後的移動交給 center／focus 兩個 effect
@@ -147,7 +149,7 @@ export default function StopMap({
     for (const stop of stops) {
       if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng)) continue
       const selected = favoriteKey(stop) === selectedKey
-      const name = stop.nameTc || stop.nameEn || stop.id
+      const name = pickLang(stop.nameTc, stop.nameEn) || stop.id
       const marker = L.marker([stop.lat, stop.lng], {
         icon: createStopIcon({ name, selected, isDark }),
         title: name,
@@ -163,7 +165,7 @@ export default function StopMap({
     return () => {
       if (map.hasLayer(layer)) map.removeLayer(layer)
     }
-  }, [stops, selectedKey, isDark, onSelectStop])
+  }, [stops, selectedKey, isDark, onSelectStop, pickLang])
 
   // 使用者目前位置藍點
   useEffect(() => {
@@ -225,13 +227,13 @@ export default function StopMap({
   }, [onLocate, userLocation])
 
   return (
-    <section className="card overflow-hidden" aria-label="附近站點地圖">
+    <section className="card overflow-hidden" aria-label={t('map.label')}>
       <div className="relative">
         <div
           ref={mapElRef}
           className="h-52 w-full"
           style={{ background: isDark ? '#1e293b' : '#e2e8f0' }}
-          aria-label="附近站點互動地圖，點擊圖釘可展開對應站點"
+          aria-label={t('map.aria')}
         />
 
         {mapsUrl && (
@@ -239,11 +241,11 @@ export default function StopMap({
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            title="在 Google Maps 開啟此站（可查看街景與步行導航）"
+            title={t('map.googleMapsTitle')}
             className="absolute right-2 top-2 z-[1000] inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-200 dark:hover:bg-slate-900"
           >
             <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">在 Google Maps 開啟此站</span>
+            <span className="truncate">{t('map.googleMaps')}</span>
           </a>
         )}
 
@@ -251,8 +253,8 @@ export default function StopMap({
           type="button"
           onClick={handleLocate}
           disabled={locating}
-          aria-label="重新定位"
-          title="重新定位"
+          aria-label={t('nearby.relocate')}
+          title={t('nearby.relocate')}
           className="absolute bottom-2 right-2 z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-600 shadow-md backdrop-blur transition hover:bg-white hover:text-sky-600 disabled:opacity-50 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-sky-400"
         >
           <LocateFixed className={`h-4 w-4 ${locating ? 'animate-spin' : ''}`} aria-hidden="true" />

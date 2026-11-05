@@ -5,6 +5,7 @@ import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.j
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLocation from '../hooks/useLocation.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { getFareUpdatedAt, getNearbyStops } from '../services/api.js'
 import { formatClock, formatDateTime } from '../utils/format.js'
 
@@ -27,6 +28,7 @@ export default function Nearby() {
     locate,
   } = useLocation()
   const { favorites, toggleFavorite } = useFavorites()
+  const { t } = useLanguage()
 
   const [stops, setStops] = useState([])
   const [error, setError] = useState(null)
@@ -83,14 +85,14 @@ export default function Nearby() {
       .catch((err) => {
         if (cancelled) return
         setStops([])
-        setError(err?.message ?? '無法取得附近站點')
+        setError(err?.message ?? t('nearby.error'))
         setLoadedRequestKey(requestKey)
       })
 
     return () => {
       cancelled = true
     }
-  }, [requestKey, lat, lng, focusStop])
+  }, [requestKey, lat, lng, focusStop, t])
 
   // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
   // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。
@@ -189,14 +191,19 @@ export default function Nearby() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {isLocating ? '正在定位…' : isFallback ? '使用預設位置' : '已取得你的位置'}
+              {isLocating
+                ? t('nearby.locating')
+                : isFallback
+                  ? t('nearby.fallback')
+                  : t('nearby.located')}
             </p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
               {Number.isFinite(lat) && Number.isFinite(lng)
                 ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-                : '等待定位結果…'}
-              {Number.isFinite(accuracy) && ` · 誤差約 ${Math.round(accuracy)} 公尺`}
-              {updatedAt ? ` · ${formatClock(updatedAt)} 更新` : ''}
+                : t('nearby.waiting')}
+              {Number.isFinite(accuracy) &&
+                ` · ${t('nearby.accuracy', { n: Math.round(accuracy) })}`}
+              {updatedAt ? ` · ${t('nearby.updated', { time: formatClock(updatedAt) })}` : ''}
             </p>
             {(locationError || etaError) && (
               <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400">
@@ -211,8 +218,8 @@ export default function Nearby() {
               onClick={locate}
               disabled={isLocating}
               className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:hover:bg-slate-800"
-              aria-label="重新定位"
-              title="重新定位"
+              aria-label={t('nearby.relocate')}
+              title={t('nearby.relocate')}
             >
               <LocateFixed className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -221,8 +228,8 @@ export default function Nearby() {
               onClick={reloadAll}
               disabled={status === 'loading' || refreshing}
               className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:hover:bg-slate-800"
-              aria-label="更新附近站點"
-              title="更新"
+              aria-label={t('nearby.refresh')}
+              title={t('common.refresh')}
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
             </button>
@@ -235,10 +242,7 @@ export default function Nearby() {
       {status === 'error' && <ErrorState message={error} onRetry={reloadAll} />}
 
       {status === 'ready' && stops.length === 0 && (
-        <EmptyState
-          title="附近找不到站點"
-          description="500 公尺內沒有可查詢的九巴、城巴或小巴站點，請移動到其他位置或重新定位後再試。"
-        />
+        <EmptyState title={t('nearby.emptyTitle')} description={t('nearby.emptyDesc')} />
       )}
 
       {status === 'ready' && stops.length > 0 && (
@@ -276,9 +280,13 @@ export default function Nearby() {
 
       <footer className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pb-2 text-center text-[10px] leading-relaxed text-slate-400 dark:text-slate-500">
         <Star className="h-3 w-3" aria-hidden="true" />
-        <span>資料來源：DATA.GOV.HK（九巴／城巴／小巴實時到站、運輸署票價）</span>
-        {etaUpdatedAt && <span>· 到站資料 {formatDateTime(etaUpdatedAt)}</span>}
-        {getFareUpdatedAt() && <span>· 票價表 {formatDateTime(getFareUpdatedAt())}</span>}
+        <span>{t('nearby.source')}</span>
+        {etaUpdatedAt && (
+          <span>· {t('nearby.etaData', { time: formatDateTime(etaUpdatedAt) })}</span>
+        )}
+        {getFareUpdatedAt() && (
+          <span>· {t('nearby.fareData', { time: formatDateTime(getFareUpdatedAt()) })}</span>
+        )}
       </footer>
     </div>
   )

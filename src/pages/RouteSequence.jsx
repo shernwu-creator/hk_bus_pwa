@@ -15,6 +15,7 @@ import OperatorBadge from '../components/OperatorBadge.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
 import { TravelPlanBanner, TravelPlanChips, TravelPlanToggle } from '../components/TravelPlan.jsx'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
+import useLanguage from '../hooks/useLanguage.js'
 import {
   distanceInMeters,
   filterByRoute,
@@ -88,8 +89,8 @@ function findMatchingStop(stops, target) {
   return null
 }
 
-function directionLabel(direction) {
-  return direction === 'inbound' ? '回程' : '去程'
+function directionLabel(direction, t) {
+  return direction === 'inbound' ? t('direction.inbound') : t('direction.outbound')
 }
 
 /**
@@ -169,12 +170,13 @@ function pickEtaEntry(entries, direction, stopSeq) {
  * 切換站點時由父層以 key 重新掛載整個面板，舊的請求／計時器會在 cleanup 中取消，
  * 因此不會出現「上一站的班次蓋掉這一站」或背景繼續輪詢的問題。
  *
- * @param {{stop:object, route:string, direction:string, siblingParam?:string}} params
+ * @param {{stop:object, route:string, direction:string, siblingParam?:string, fallbackError?:string}} params
  */
-function useStopEtas({ stop, route, direction, siblingParam }) {
+function useStopEtas({ stop, route, direction, siblingParam, fallbackError }) {
   const [state, setState] = useState({
     etas: [],
     destination: '',
+    destinationEn: '',
     showDestination: false,
     loading: true,
     updating: false,
@@ -223,6 +225,7 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
         setState({
           etas: etas.slice(0, 3),
           destination: matched?.destination ?? '',
+          destinationEn: matched?.destinationEn ?? '',
           showDestination: multiple,
           loading: false,
           updating: false,
@@ -235,7 +238,7 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
           ...prev,
           loading: false,
           updating: false,
-          error: error?.message ?? '無法取得實時到站資料',
+          error: error?.message ?? fallbackError,
         }))
       }
 
@@ -248,7 +251,7 @@ function useStopEtas({ stop, route, direction, siblingParam }) {
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [stop, route, direction, siblingParam, reloadToken])
+  }, [stop, route, direction, siblingParam, reloadToken, fallbackError])
 
   const refresh = useCallback(() => setReloadToken((token) => token + 1), [])
 
@@ -285,13 +288,24 @@ function StopEtaPanel({
   onSelectEta,
   onEtasChange,
 }) {
-  const { etas, destination, showDestination, loading, updating, error, updatedAt, refresh } =
-    useStopEtas({
-      stop,
-      route,
-      direction,
-      siblingParam: siblingIds.join(','),
-    })
+  const { t, pickLang } = useLanguage()
+  const {
+    etas,
+    destination,
+    destinationEn,
+    showDestination,
+    loading,
+    updating,
+    error,
+    updatedAt,
+    refresh,
+  } = useStopEtas({
+    stop,
+    route,
+    direction,
+    siblingParam: siblingIds.join(','),
+    fallbackError: t('route.etaError'),
+  })
 
   // 把最新的實時 ETA 往上回報（只在資料真的變動時觸發，不會無限迴圈）
   useEffect(() => {
@@ -326,7 +340,7 @@ function StopEtaPanel({
             className="chip shrink-0 bg-white px-2 py-0.5 text-rose-600 transition hover:bg-rose-100 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-slate-800"
           >
             <RefreshCw className="h-3 w-3" aria-hidden="true" />
-            重試
+            {t('common.retry')}
           </button>
         </div>
       ) : (
@@ -336,12 +350,12 @@ function StopEtaPanel({
             selectable={planSelectable}
             selectedIndex={planSelectedIndex}
             onSelect={onSelectEta}
-            destination={destination}
+            destination={pickLang(destination, destinationEn)}
             showDestination={showDestination}
           />
           {etas.length === 0 && (
             <p className="mt-1.5 px-1 text-[11px] text-slate-500 dark:text-slate-400">
-              此方向暫無實時到站資料，可能已收班或班次未開始。
+              {t('route.noEta')}
             </p>
           )}
         </>
@@ -349,13 +363,15 @@ function StopEtaPanel({
 
       <div className="mt-1.5 flex items-center justify-between gap-2 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">
         <span>
-          {updatedAt ? `資料更新 ${formatClock(updatedAt)} · 每 30 秒自動更新` : '正在取得實時到站資料…'}
+          {updatedAt
+            ? t('route.updated', { time: formatClock(updatedAt) })
+            : t('route.loadingEta')}
         </span>
         <button
           type="button"
           onClick={refresh}
-          aria-label="立即更新到站時間"
-          title="立即更新"
+          aria-label={t('route.refreshAria')}
+          title={t('common.refresh')}
           className="rounded-full p-0.5 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
         >
           <RefreshCw className={`h-3 w-3 ${updating ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -376,6 +392,7 @@ export default function RouteSequence() {
   const { operator, route, direction } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { t, pickLang } = useLanguage()
 
   const stopParam = searchParams.get('stop') ?? ''
   const nameParam = searchParams.get('name') ?? ''
@@ -433,9 +450,9 @@ export default function RouteSequence() {
       setStopsStatus('loading')
       setStopsError(null)
       try {
-        if (!operator || !route) throw new Error('網址缺少業者或路線資料，請由站點的路線卡片重新開啟。')
+        if (!operator || !route) throw new Error(t('route.missingParams'))
         if (isGmbMissingMeta) {
-          throw new Error('此小巴路線缺少 routeId／routeSeq 參數，請由站點的路線卡片重新開啟。')
+          throw new Error(t('route.gmbMissing'))
         }
         const list = await getRouteStops({
           operator,
@@ -460,7 +477,7 @@ export default function RouteSequence() {
         setStops([])
         setExpandedStopIds(new Set())
         setStopsStatus('error')
-        setStopsError(error?.message ?? '無法取得站序資料')
+        setStopsError(error?.message ?? t('route.loadError'))
       }
     }
 
@@ -469,7 +486,7 @@ export default function RouteSequence() {
     return () => {
       cancelled = true
     }
-  }, [operator, route, directionValue, serviceType, routeId, routeSeq, stopsReloadToken, isGmbMissingMeta])
+  }, [operator, route, directionValue, serviceType, routeId, routeSeq, stopsReloadToken, isGmbMissingMeta, t])
 
   // 來源站：以 URL 的 stop／siblings 比對站點 ID，反轉方向後改以正規化站名／座標找回。
   // 「本站」chip 與 sky 高亮只標示這一站；其他已展開的站不會被搶走高亮。
@@ -593,18 +610,23 @@ export default function RouteSequence() {
     list.scrollTop = Math.max(0, item.offsetTop - list.clientHeight / 2 + item.clientHeight / 2)
   }, [stopsSignature])
 
-  const headerOrig = origParam || stops[0]?.nameTc || stops[0]?.nameEn || ''
+  const firstStop = stops[0]
+  const lastStop = stops[stops.length - 1]
+  const headerOrig =
+    pickLang(firstStop?.nameTc, firstStop?.nameEn) || origParam || ''
   const headerDest =
-    destParam || stops[stops.length - 1]?.nameTc || stops[stops.length - 1]?.nameEn || ''
+    pickLang(lastStop?.nameTc, lastStop?.nameEn) || destParam || ''
 
   useEffect(() => {
     if (!route) return undefined
     const previous = document.title
-    document.title = `${route} ${directionLabel(directionValue)}${headerDest ? ` 往 ${headerDest}` : ''}｜香港巴士站序`
+    const directionText = directionLabel(directionValue, t)
+    const towardDestination = headerDest ? ` ${t('route.to', { dest: headerDest })}` : ''
+    document.title = `${route} ${directionText}${towardDestination}｜${t('route.title')}`
     return () => {
       document.title = previous
     }
-  }, [route, directionValue, headerDest])
+  }, [route, directionValue, headerDest, t])
 
   const retryStops = useCallback(() => setStopsReloadToken((token) => token + 1), [])
 
@@ -660,7 +682,7 @@ export default function RouteSequence() {
       })
       if (!target) {
         setReverseStatus('error')
-        setReverseError(`找不到 ${route} 的另一方向資料，這條路線可能只有單方向行駛。`)
+        setReverseError(t('route.reverseNotFound', { route }))
         return
       }
 
@@ -704,7 +726,7 @@ export default function RouteSequence() {
       setReverseStatus('idle')
     } catch (error) {
       setReverseStatus('error')
-      setReverseError(error?.message ?? '無法載入路線索引，請稍後再試。')
+      setReverseError(error?.message ?? t('route.indexError'))
     }
   }, [
     activeStop,
@@ -719,6 +741,7 @@ export default function RouteSequence() {
     routeId,
     routeSeq,
     serviceType,
+    t,
   ])
 
   // 「返回」：站內已改為原視窗導覽，因此直接用 Router 返回上一頁，
@@ -746,39 +769,39 @@ export default function RouteSequence() {
   const isReversing = reverseStatus === 'loading'
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
-      <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200/70 bg-white/90 backdrop-blur-lg dark:border-slate-800 dark:bg-slate-950/90">
-        <div className="mx-auto w-full max-w-lg px-3 py-2.5">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-gradient-to-br from-sky-100 via-sky-50 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/90">
+      <header className="sticky top-0 z-20 shrink-0 px-3 pt-2">
+        <div className="mx-auto w-full max-w-lg rounded-[22px] border border-white/80 bg-white/85 px-3 py-2.5 shadow-sm backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-800/80">
           <div className="flex items-start gap-2">
             <button
               type="button"
               onClick={handleBack}
-              aria-label="返回上一頁"
-              title="返回"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 active:scale-95 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              aria-label={t('route.backAria')}
+              title={t('route.back')}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 active:scale-95 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              返回
+              {t('route.back')}
             </button>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-1.5">
                 <span className="text-xl font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
-                  {route || '路線站序'}
+                  {route || t('route.title')}
                 </span>
                 <OperatorBadge operator={operator} />
                 <span className="chip bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
-                  {directionLabel(directionValue)}
+                  {directionLabel(directionValue, t)}
                 </span>
                 {stopsStatus === 'ready' && stops.length > 0 && (
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    · {stops.length} 站
+                    · {t('common.stops', { n: stops.length })}
                   </span>
                 )}
               </p>
               <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
                 <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
                 <span className="truncate">
-                  {headerOrig || '起點'} → {headerDest || '終點'}
+                  {headerOrig || t('route.origin')} → {headerDest || t('route.destination')}
                 </span>
               </p>
             </div>
@@ -787,7 +810,7 @@ export default function RouteSequence() {
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1 truncate text-[10px] text-slate-400 dark:text-slate-500">
               <RefreshCw className="h-3 w-3 shrink-0" aria-hidden="true" />
-              全線站序 · 到站資料每 30 秒自動更新
+              {t('route.refreshNote')}
             </span>
             <button
               type="button"
@@ -800,7 +823,7 @@ export default function RouteSequence() {
               ) : (
                 <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
               )}
-              {isReversing ? '尋找反向…' : '反轉方向'}
+              {isReversing ? t('route.reversing') : t('route.reverse')}
             </button>
           </div>
         </div>
@@ -820,7 +843,7 @@ export default function RouteSequence() {
               className="chip shrink-0 bg-white px-2 py-0.5 text-amber-700 transition hover:bg-amber-100 dark:bg-slate-900 dark:text-amber-300 dark:hover:bg-slate-800"
             >
               <RefreshCw className="h-3 w-3" aria-hidden="true" />
-              重試
+              {t('common.retry')}
             </button>
           </div>
         </div>
@@ -835,17 +858,14 @@ export default function RouteSequence() {
 
         {stopsStatus === 'error' && (
           <ErrorState
-            title={isGmbMissingMeta ? '缺少小巴路線參數' : '無法載入站序'}
+            title={isGmbMissingMeta ? t('route.missingMetaTitle') : t('route.loadTitle')}
             message={stopsError}
             onRetry={isGmbMissingMeta ? undefined : retryStops}
           />
         )}
 
         {stopsStatus === 'ready' && stops.length === 0 && (
-          <EmptyState
-            title="此方向暫無站序資料"
-            description="官方目前沒有這條路線此方向的站點，請嘗試反轉方向或重新開啟。"
-          />
+          <EmptyState title={t('route.emptyTitle')} description={t('route.emptyDesc')} />
         )}
 
         {stopsStatus === 'ready' && stops.length > 0 && (
@@ -853,7 +873,9 @@ export default function RouteSequence() {
             <div className="flex shrink-0 items-center justify-between gap-2 px-1">
               <span className="flex min-w-0 items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                 <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-                <span className="truncate">全線站序 · {stops.length} 站</span>
+                <span className="truncate">
+                  {t('route.stopsLabel', { n: stops.length })}
+                </span>
               </span>
               <TravelPlanToggle active={planEnabled} onClick={togglePlanMode} />
             </div>
@@ -861,7 +883,7 @@ export default function RouteSequence() {
             {planEnabled && travelPlan && (
               <TravelPlanBanner
                 plan={travelPlan}
-                etaLabel={`第 ${(planBase?.index ?? 0) + 1} 班`}
+                etaLabel={t('plan.etaLabel', { n: (planBase?.index ?? 0) + 1 })}
                 baseLoading={planBaseLoading}
                 className="shrink-0"
               />
@@ -869,7 +891,7 @@ export default function RouteSequence() {
 
             <ol
               ref={listRef}
-              aria-label="全線站序"
+              aria-label={t('route.full')}
               className="card relative min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5"
             >
               {stops.map((stop) => {
@@ -923,18 +945,13 @@ export default function RouteSequence() {
                                 : 'text-slate-700 dark:text-slate-200'
                             }`}
                           >
-                            {stop.nameTc || stop.nameEn || stop.id}
+                            {pickLang(stop.nameTc, stop.nameEn) || stop.id}
                           </span>
-                          {stop.nameTc && stop.nameEn && (
-                            <span className="block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                              {stop.nameEn}
-                            </span>
-                          )}
                           <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-                            {isExpanded ? '最近三班車' : '查看最近三班車'}
+                            {isExpanded ? t('route.next3') : t('route.viewNext3')}
                             {isSource && (
                               <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
-                                本站
+                                {t('route.current')}
                               </span>
                             )}
                           </span>
@@ -942,12 +959,13 @@ export default function RouteSequence() {
                             <span className="mt-1 flex flex-wrap items-center gap-1">
                               {isPlanBase ? (
                                 <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
-                                  推算基準
                                   {travelPlan?.baseTime != null
-                                    ? ` · ${formatClock(travelPlan.baseTime)} 到站`
+                                    ? t('route.planBaseArrival', {
+                                        time: formatClock(travelPlan.baseTime),
+                                      })
                                     : planBaseLoading
-                                      ? '（正在取得班次…）'
-                                      : '（暫無實時班次）'}
+                                      ? t('route.planBaseLoading')
+                                      : t('route.planBaseNone')}
                                 </span>
                               ) : (
                                 <TravelPlanChips entry={planEntry} />
@@ -960,9 +978,9 @@ export default function RouteSequence() {
                       <button
                         type="button"
                         onClick={() => toggleFavorite(stop)}
-                        aria-label={isFavorite ? '取消收藏此站' : '收藏此站'}
+                        aria-label={isFavorite ? t('stop.unfavorite') : t('stop.favorite')}
                         aria-pressed={isFavorite}
-                        title={isFavorite ? '取消收藏此站' : '收藏此站'}
+                        title={isFavorite ? t('stop.unfavorite') : t('stop.favorite')}
                         className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/70 hover:text-amber-500 dark:text-slate-500 dark:hover:bg-slate-700/60"
                       >
                         <Star
@@ -976,7 +994,9 @@ export default function RouteSequence() {
                       <button
                         type="button"
                         onClick={() => handleToggleStop(stop)}
-                        aria-label={isExpanded ? '收合此站到站時間' : '展開此站到站時間'}
+                        aria-label={
+                          isExpanded ? t('route.collapseStop') : t('route.expandStop')
+                        }
                         aria-expanded={isExpanded}
                         aria-controls={panelId}
                         className="shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/70 hover:text-sky-600 dark:hover:bg-slate-700/60"
@@ -1012,8 +1032,8 @@ export default function RouteSequence() {
         )}
       </main>
 
-      <footer className="shrink-0 border-t border-slate-200/70 bg-white/70 px-3 py-1.5 text-center text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-500">
-        資料來源：DATA.GOV.HK · 九巴 KMB／城巴 CTB／專線小巴 GMB
+      <footer className="shrink-0 border-t border-white/60 bg-white/60 px-3 py-1.5 text-center text-[10px] text-slate-400 backdrop-blur-xl dark:border-slate-800/70 dark:bg-slate-950/60 dark:text-slate-500">
+        {t('route.source')}
       </footer>
     </div>
   )

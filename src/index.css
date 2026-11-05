@@ -21,7 +21,9 @@
   }
 
   body {
-    @apply min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+    /* 款式 B：柔和冰藍漸層（日間）／午夜深藍紫漸層（夜間），App.jsx 的光暈疊在其上 */
+    @apply min-h-screen bg-gradient-to-br from-sky-100 via-sky-50 to-slate-50 font-sans text-slate-900 antialiased dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/90 dark:text-slate-100;
+    background-attachment: fixed;
   }
 
   ::selection {
@@ -29,7 +31,7 @@
   }
 
   :focus-visible {
-    @apply outline-none ring-2 ring-sky-500 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-950;
+    @apply outline-none ring-2 ring-sky-500 ring-offset-2 ring-offset-sky-50 dark:ring-offset-slate-950;
   }
 }
 

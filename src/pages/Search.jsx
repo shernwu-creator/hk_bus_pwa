@@ -6,6 +6,7 @@ import SearchBar from '../components/SearchBar.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from '../components/StateViews.jsx'
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
+import useLanguage from '../hooks/useLanguage.js'
 import { getRouteIndex, getRouteStops } from '../services/api.js'
 
 /** 常見路線，讓使用者不用打字就能試用 */
@@ -29,6 +30,7 @@ function matchesQuery(row, keyword) {
  */
 export default function Search() {
   const { favorites, toggleFavorite } = useFavorites()
+  const { t, pickLang } = useLanguage()
   const [query, setQuery] = useState('')
   const [routeIndex, setRouteIndex] = useState(null)
   const [indexStatus, setIndexStatus] = useState('idle')
@@ -63,9 +65,9 @@ export default function Search() {
       })
       .catch((error) => {
         setIndexStatus('error')
-        setIndexError(error?.message ?? '無法取得路線清單')
+        setIndexError(error?.message ?? t('search.indexError'))
       })
-  }, [])
+  }, [t])
 
   const handleQueryChange = (value) => {
     setQuery(value)
@@ -107,14 +109,14 @@ export default function Search() {
       .catch((error) => {
         if (cancelled) return
         setStops([])
-        setStopsError(error?.message ?? '無法取得站序資料')
+        setStopsError(error?.message ?? t('search.stopsError'))
         setLoadedStopsKey(stopsRequestKey)
       })
 
     return () => {
       cancelled = true
     }
-  }, [selected, stopsRequestKey])
+  }, [selected, stopsRequestKey, t])
 
   // 展開中的站點（可同時多個）；帶完整站點物件，展開後站名才不會退回站點編號
   const expandedStops = useMemo(
@@ -190,18 +192,13 @@ export default function Search() {
 
   return (
     <div className="space-y-3">
-      <SearchBar
-        value={query}
-        onChange={handleQueryChange}
-        placeholder="輸入路線號碼，例如 1A、680、A21"
-        onClear={() => setQuery('')}
-      />
+      <SearchBar value={query} onChange={handleQueryChange} onClear={() => setQuery('')} />
 
       {!keyword && (
         <section className="card p-3">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
             <Hash className="h-3.5 w-3.5" aria-hidden="true" />
-            熱門路線
+            {t('search.popular')}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {POPULAR_ROUTES.map((code) => (
@@ -216,7 +213,7 @@ export default function Search() {
             ))}
           </div>
           <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-            輸入完整或部分路線號碼即可同時搜尋九巴、城巴與專線小巴路線；選定方向後可展開任一站點，查看該路線最近三班車。
+            {t('search.popularDesc')}
           </p>
         </section>
       )}
@@ -227,15 +224,15 @@ export default function Search() {
 
       {keyword && indexStatus === 'ready' && results.length === 0 && (
         <EmptyState
-          title={`找不到「${query.trim()}」路線`}
-          description="請確認路線號碼，或改用部分號碼搜尋（例如 68、A2）。"
+          title={t('search.notFound', { query: query.trim() })}
+          description={t('search.notFoundDesc')}
         />
       )}
 
       {keyword && results.length > 0 && (
         <>
           <p className="px-1 text-[11px] text-slate-400 dark:text-slate-500">
-            找到 {results.length} 個路線方向，點選後查看站序
+            {t('search.found', { n: results.length })}
           </p>
           <ul className="space-y-2">
             {results.map((row) => (
@@ -253,13 +250,15 @@ export default function Search() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                      往 {row.destination}
+                      {t('search.to', { dest: pickLang(row.destination, row.destinationEn) })}
                     </span>
                     <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
                       <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{row.orig}</span>
+                      <span className="truncate">{pickLang(row.orig, row.origEn)}</span>
                       <span className="chip shrink-0 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        {row.direction === 'inbound' ? '回程' : '去程'}
+                        {row.direction === 'inbound'
+                          ? t('direction.inbound')
+                          : t('direction.outbound')}
                       </span>
                     </span>
                   </span>

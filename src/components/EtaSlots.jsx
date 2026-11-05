@@ -1,4 +1,5 @@
 import { formatClock } from '../utils/format.js'
+import useLanguage from '../hooks/useLanguage.js'
 
 /**
  * 單一班次的倒數格：分鐘數字／即將到站／未有班次，下方是預計到站時間。
@@ -14,9 +15,12 @@ import { formatClock } from '../utils/format.js'
  * @param {string} [props.toneClass] 多目的地時的底色／外框色調（由呼叫端依目的地分組提供）
  */
 export function EtaSlot({ eta, selectable = false, selected = false, onSelect, toneClass = '' }) {
+  const { t } = useLanguage()
   const minutes = eta?.minutes ?? null
   const isArriving = minutes != null && minutes <= 0
-  const label = eta?.time ? `${formatClock(eta.time)} 到站` : '未有班次'
+  const label = eta?.time
+    ? t('eta.arrival', { time: formatClock(eta.time) })
+    : t('eta.noService')
   const ringClass = selected
     ? 'bg-sky-50 ring-2 ring-sky-500 dark:bg-sky-500/15 dark:ring-sky-400'
     : toneClass || 'bg-slate-50 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700/60'
@@ -28,22 +32,26 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect, t
         {minutes == null ? (
           <span className="text-base font-semibold text-slate-400 dark:text-slate-500">—</span>
         ) : isArriving ? (
-          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">即將到站</span>
+          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+            {t('eta.arriving')}
+          </span>
         ) : (
           <>
             <span className="text-lg font-bold tabular-nums text-slate-900 dark:text-white">
               {minutes}
             </span>
-            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">分</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+              {t('eta.min')}
+            </span>
           </>
         )}
       </span>
       <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
-        {eta?.time ? formatClock(eta.time) : '未有班次'}
+        {eta?.time ? formatClock(eta.time) : t('eta.noService')}
       </span>
       {selected && (
         <span className="mt-0.5 block text-[9px] font-bold leading-none text-sky-600 dark:text-sky-300">
-          推算基準
+          {t('eta.base')}
         </span>
       )}
     </>
@@ -51,7 +59,7 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect, t
 
   if (!selectable) {
     return (
-      <span className={className} title={eta?.remark || '實時預計到站時間'}>
+      <span className={className} title={eta?.remark || t('eta.realtimeTitle')}>
         {body}
       </span>
     )
@@ -62,8 +70,8 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect, t
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      aria-label={`${label}，點擊以此班次推算後續各站到達時間`}
-      title={selected ? '目前推算基準' : `以此班次（${label}）推算後續各站`}
+      aria-label={t('eta.selectAria', { label })}
+      title={selected ? t('eta.selectedTitle') : t('eta.selectTitle', { label })}
       className={`${className} hover:ring-sky-400 active:scale-95`}
     >
       {body}
@@ -84,7 +92,7 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect, t
  * @param {boolean} [props.selectable] 三格是否可點擊切換推算基準
  * @param {number|null} [props.selectedIndex] 目前作為推算基準的班次索引（0-2）
  * @param {(index:number) => void} [props.onSelect] 點擊第 index 班時的回呼
- * @param {string} [props.destination] 目的地名稱（多目的地時顯示）
+ * @param {string} [props.destination] 目的地名稱（多目的地時顯示；呼叫端已依語言挑選）
  * @param {boolean} [props.showDestination] 是否顯示「往 [目的地]」標籤
  * @param {{chip:string, slot:string, dot:string}|null} [props.tone] 目的地色調
  */
@@ -98,6 +106,7 @@ export default function EtaSlots({
   showDestination = false,
   tone = null,
 }) {
+  const { t } = useLanguage()
   const slots = [etas[0] ?? null, etas[1] ?? null, etas[2] ?? null]
   const showHeading = showDestination && Boolean(destination)
 
@@ -112,7 +121,7 @@ export default function EtaSlots({
               className={`h-1.5 w-1.5 rounded-full ${tone?.dot ?? 'bg-slate-400'}`}
               aria-hidden="true"
             />
-            往 {destination}
+            {t('eta.to', { dest: destination })}
           </span>
         </span>
       )}
