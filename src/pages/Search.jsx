@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Hash, MapPin } from 'lucide-react'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import RouteStopsPanel from '../components/RouteStopsPanel.jsx'
@@ -7,7 +7,11 @@ import { EmptyState, ErrorState, RouteSkeleton } from '../components/StateViews.
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLanguage from '../hooks/useLanguage.js'
+import useMapCollapse from '../hooks/useMapCollapse.js'
 import { getRouteIndex, getRouteStops } from '../services/api.js'
+
+/** Leaflet 只在站序地圖出現時才載入，搜尋結果頁不必付地圖程式碼的成本 */
+const StopMap = lazy(() => import('../components/StopMap.jsx'))
 
 /** 常見路線，讓使用者不用打字就能試用 */
 const POPULAR_ROUTES = ['1A', '6', '101', '112', '680', '962', 'A21', 'E33']
@@ -46,6 +50,9 @@ export default function Search() {
   const [expandedIds, setExpandedIds] = useState(() => new Set())
   // 開啟站序面板前的路線清單捲動位置：返回清單時還原，站序滑到深處按「返回」才不會跳到別處
   const resultsScrollRef = useRef(0)
+  // 站序頁全線軌跡地圖：focusedStopId 為 null 時顯示全線，點選站點後聚焦該站
+  const [focusedStopId, setFocusedStopId] = useState(null)
+  const { collapsed, toggleCollapse, resetCollapse } = useMapCollapse()
 
   const keyword = query.trim().toUpperCase()
   const stopsRequestKey = selected ? `${routeKey(selected)}|${stopsReloadToken}` : null
@@ -149,22 +156,42 @@ export default function Search() {
   }, [])
 
   // 選擇路線（事件處理器內重置站序狀態，讓面板立即回到 loading）
-  const chooseRoute = useCallback((row) => {
-    // 記住清單的捲動位置，並把畫面帶回頂端，站序面板一打開就從第一站開始看
-    resultsScrollRef.current = window.scrollY
-    setSelected(row)
-    setStops([])
-    setStopsError(null)
-    setLoadedStopsKey(null)
-    setExpandedIds(new Set())
-    window.scrollTo({ top: 0 })
-  }, [])
+  const chooseRoute = useCallback(
+    (row) => {
+      // 記住清單的捲動位置，並把畫面帶回頂端，站序面板一打開就從第一站開始看
+      resultsScrollRef.current = window.scrollY
+      setSelected(row)
+      setStops([])
+      setStopsError(null)
+      setLoadedStopsKey(null)
+      setExpandedIds(new Set())
+      setFocusedStopId(null)
+      resetCollapse()
+      window.scrollTo({ top: 0 })
+    },
+    [resetCollapse],
+  )
 
   // 返回路線清單：等清單重新渲染後還原原本的捲動位置
   const backToResults = useCallback(() => {
     setSelected(null)
+    setFocusedStopId(null)
+    resetCollapse()
     window.requestAnimationFrame(() => window.scrollTo({ top: resultsScrollRef.current }))
-  }, [])
+  }, [resetCollapse])
+
+  // 點站點列：展開／收合 ETA，並把地圖聚焦到該站（地圖左上的「顯示全線軌跡」可清除）
+  const handleToggleStop = useCallback(
+    (id) => {
+      setFocusedStopId(id)
+      toggleStop(id)
+    },
+    [toggleStop],
+  )
+
+  // 點地圖上的站點圖釘：只聚焦（不展開），右上 Google Maps 連結會跟著指向該站
+  const handleSelectMapStop = useCallback((stop) => setFocusedStopId(stop.id), [])
+  const clearMapFocus = useCallback(() => setFocusedStopId(null), [])
 
   const retryStops = useCallback(() => {
     setExpandedIds(new Set())
@@ -172,21 +199,51 @@ export default function Search() {
   }, [])
 
   if (selected) {
+    const showMapArea = stopsStatus === 'loading' || stops.length > 0
     return (
-      <RouteStopsPanel
-        selected={selected}
-        stops={stops}
-        status={stopsStatus}
-        error={stopsError}
-        etaGroupsByKey={etaGroupsByKey}
-        expandedIds={expandedIds}
-        onToggleStop={toggleStop}
-        onBack={backToResults}
-        isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
-        onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
-        onRetry={retryStops}
-        etaUpdatedAt={etaUpdatedAt}
-      />
+      <>
+        {showMapArea && (
+          <div
+            className="sticky top-2 z-20 mb-2"
+            style={{ top: 'calc(var(--app-header-h, 3.5rem) + 0.5rem)' }}
+          >
+            {stops.length > 0 ? (
+              <Suspense
+                fallback={
+                  <div className="skeleton h-[210px] w-full rounded-[22px]" aria-hidden="true" />
+                }
+              >
+                <StopMap
+                  routeStops={stops}
+                  focusedStopId={focusedStopId}
+                  onClearFocus={clearMapFocus}
+                  onSelectStop={handleSelectMapStop}
+                  collapsed={collapsed}
+                  onToggleCollapse={toggleCollapse}
+                />
+              </Suspense>
+            ) : (
+              <div className="skeleton h-[210px] w-full rounded-[22px]" aria-hidden="true" />
+            )}
+          </div>
+        )}
+
+        <RouteStopsPanel
+          selected={selected}
+          stops={stops}
+          status={stopsStatus}
+          error={stopsError}
+          etaGroupsByKey={etaGroupsByKey}
+          expandedIds={expandedIds}
+          onToggleStop={handleToggleStop}
+          onBack={backToResults}
+          isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
+          onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
+          onRetry={retryStops}
+          etaUpdatedAt={etaUpdatedAt}
+          topOffset={showMapArea ? (collapsed ? '146px' : '218px') : null}
+        />
+      </>
     )
   }
 

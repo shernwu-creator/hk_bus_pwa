@@ -139,22 +139,23 @@ src/
 ├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip；body 漸層背景）
 ├─ pages/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
-│  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 站序 → ETA
+│  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 置頂全線軌跡地圖 → 站序 → ETA
 │  ├─ Favorites.jsx          # 已收藏站點（localStorage）：同名／相近站位分組顯示，可整組或單站取消收藏
-│  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：全線站序、各站三班 ETA、反轉方向（URL 可分享）
+│  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：置頂全線軌跡地圖、全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊在原視窗開啟站序）
-│  ├─ StopMap.jsx            # 附近站點互動地圖（置頂／collapsed 高度動畫、內嵌定位膠囊與 Google Maps 按鈕；Leaflet 圖磚、站點 flyTo 聯動）
+│  ├─ StopMap.jsx            # Leaflet 地圖（附近站點＋全線軌跡模式；置頂／collapsed 高度動畫、內嵌定位膠囊、Google Maps 按鈕、focus flyTo）
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
-│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header 下方）
+│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header／置頂地圖下方）
 │  ├─ SearchBar.jsx / OperatorBadge.jsx
 │  ├─ BottomNav.jsx          # 底部懸浮島 Dock（毛玻璃膠囊、選中 Tab 藍紫漸層）
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
 ├─ hooks/
 │  ├─ useLanguage.js         # 語言 Context：localStorage「hkb:lang」、t() 字典、pickLang() 單語站名／目的地
 │  ├─ useLocation.js         # Geolocation + 權限/錯誤狀態＋localStorage 授權記憶與座標快取
+│  ├─ useMapCollapse.js      # 置頂地圖捲動收起（window 或容器 onScroll、>36 收起／<=12 展開、手動展開後 >120 才再收起）
 │  ├─ useBusData.js          # ETA 抓取與 30 秒輪詢（Promise.allSettled；切到背景停止、回前景立即更新）＋路線卡排序用的剩餘距離
 │  ├─ useFavorites.js        # localStorage「hkb:favorites:v1」（含 routes / siblingIds）
 │  └─ useTheme.js            # 深色模式「hkb:theme」＋ html.dark
@@ -242,7 +243,7 @@ scripts/
    `target="_blank" rel="noopener noreferrer"`（手機可喚醒 App 或另開新分頁，不影響站內原視窗狀態）。
 2. 站序頁 `RouteSequence.jsx` 註冊在 `App.jsx` 的 `/route/:operator/:route/:direction`（不經 AppShell，全螢幕、無底部導覽），
    所有狀態都從 URL 還原，因此**可直接分享、重新整理、上一頁**；站內切換頁面（PUSH／REPLACE）會自動捲回頂部，
-   瀏覽器上一頁／下一頁（POP）則還原原本的捲動位置。
+   瀏覽器上一頁／下一頁（POP）則還原原本的捲動位置。站序載入後，標題下方會出現置頂的**全線軌跡地圖**（見 6.8）。
 3. 頁面以 `getRouteStops()` 取得全線站序（KMB／CTB 用 `route + direction + serviceType`；GMB 需要 `routeId + routeSeq`）。
 4. 來源站（query `stop`，並同時比對 `siblings` 月台 ID）會自動高亮並展開：
    - 以 `getStopEtas()` 查該站 ETA，再以「路線＋方向」過濾；若同一方向有多個目的地分組（循環線去程／回程），
@@ -360,6 +361,16 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
   高度改變後在 `transitionend` 與 320ms 保險計時器觸發 `map.invalidateSize()`，圖磚與中心點不會跑位。
 - **捲動門檻**：`Nearby` 以 passive scroll + `requestAnimationFrame` 防抖，`window.scrollY > 36` 收起地圖、
   `<= 12` 展開；地圖膠囊的「展開全圖 ▼」會暫時解除自動收起，要再往下滑 >120px 才重新收起。
+- **全線軌跡模式（route mode）**：`StopMap` 新增 `routeStops`／`focusedStopId`／`onClearFocus`。傳入路線站序後改以
+  `L.polyline`（顏色 `#0ea5e9`、線寬 `4`）串起所有有座標的站點：起點綠、終點琥珀、沿途天藍圓點；
+  未聚焦任何站點時以 `fitBounds(polyline.getBounds(), { padding: [24, 24] })` 顯示全線，聚焦單站時
+  `flyTo([lat, lng], 17)`、顯示該站站名，右上 Google Maps 連結同步指向該站；左上角出現「◎ 顯示全線軌跡」
+  可按 `onClearFocus` 回到全線總覽（聚焦時暫時隱藏 Leaflet 縮放鈕避免重疊）。route mode 不顯示定位膠囊。
+- **搜尋頁與站序頁的置頂軌跡地圖**：`Search` 選定路線後、`RouteSequence` 站序載入後，都在內容頂部以
+  `sticky` 常駐 `StopMap`（React.lazy 載入，免把 Leaflet 塞進搜尋／站序 chunk）。點列表站點會設定
+  `focusedStopId` 讓地圖立即飛去該站；搜尋頁監聽 `window` 捲動、站序頁監聽清單 `<ol onScroll>`，
+  兩者共用 `useMapCollapse()`（>36 收起至 138px、<=12 展開）。搜尋頁的 `RouteStopsPanel` 透過
+  `topOffset`（146px／218px）把 sticky 返回列貼在置頂地圖下緣，不會被地圖蓋住。
 - **輔助操作**：右上角「在 Google Maps 開啟 ↗」毛玻璃膠囊常駐（優先目前選中站點，其次使用者位置／地圖中心；
   以 `target="_blank" rel="noopener noreferrer"` 另開分頁或喚醒 Google Maps App）；地圖底部內嵌單行定位膠囊
   （綠點、狀態文字、誤差／更新時間、重新定位、更新附近站點；收起時顯示「展開全圖 ▼」）。Leaflet 版權列
@@ -456,6 +467,7 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 - **iOS 定位授權**：Safari 沒有 Permissions API，`hkb:location-consent`／`hkb:last-location` 只存在本機瀏覽器；清除網站資料、換瀏覽器或換裝置後會重新詢問一次。若使用者在系統層拒絕定位，站內只能顯示提示與預設／上次位置，需到 Safari 網站設定或系統設定重新允許（見 6.10）。
 - **語言只涵蓋介面與站名／目的地**：`useLanguage` 的字典覆蓋所有靜態 UI 文案與 API 提供的 `nameTc`／`nameEn`、`dest_tc`／`dest_en`；服務層動態錯誤訊息（例如網絡失敗）仍以繁體中文顯示，切換語言不會翻譯已產生的錯誤字串（見 6.11）。
 - **`hkb:lang`**：只接受 `'zh'`／`'en'`，其他值退回 `'zh'`；與 `hkb:theme`、`hkb:favorites:v1` 一樣只存在本機。
+- **站序地圖只畫有座標的站點**：`routeStops` 若缺少座標就不會出現在折線與圖釘中（例如小巴靜態索引與官方 `route-stop` 的站點 ID 未必完全對應；實測 1A 西貢方向 12 站只有 1 站命中），全線軌跡可能只剩少數點甚至無法顯示；站序與 ETA 仍正常。九巴站點清單（`/stop`）暫時 403 時同理。
 - **反轉方向的站點對應是「盡力而為」**：本車站（含月台）以站名、再用 200 公尺內座標在反向站序中找回；若另一方向不停靠附近位置，只顯示站序、不標示「本站」。九巴反轉後該站 ETA 只查單一月台（原方向仍會合併 `siblingIds` 月台）。
 - **收藏站點分組是「盡力而為」**：同名但相距 > 500 公尺的收藏會分開（實測九巴同名站點約 0.9% 屬於此類，最遠可達 50 公里）；判定方式是「與群組內任一站位距離 ≤ 500 公尺」，所以同名站點可能透過中間站位串成一組（A–B 400m、B–C 400m、A–C 800m 仍同組）。舊收藏沒有座標時只靠同名合併，無法判斷是否同一地點；站名尾端的代號／月台後綴只處理常見格式（`(YT123)`、`- 3號月台` 等），代號須含數字、其他寫法可能仍被視為不同站名。名稱相似度門檻（0.95）仍可能把同站不同座數／出口當成同一組（例如上水站 D1／D2 出口），反向也可能漏併命名差異大或順序顛倒的跨業者同站（例如「賽西湖大廈, 寶馬山道」與「寶馬山道, 賽西湖大廈外」）。展開群組會多打幾個站位的 ETA 請求：每個站位各自最多再多查 5 個月台，跨站位重複的站牌不會再去重（群組 k 個站位最多約 k×6 次站點請求），且沿用 `Promise.allSettled`，單一站失敗不影響其他站位。
 - **小巴反向 variant**：同一路線號碼可能有多個 `route_id`（不同班次描述），反轉時以起訖站互換＋相反 `route_seq` 評分挑選；單向行駛的 variant 會顯示「找不到另一方向」。
@@ -529,4 +541,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **站名與目的地中英上下堆疊太亂** | 新增 `useLanguage`（`hkb:lang`）：`pickLang()` 只輸出目前語言，`StopSection`／`BusCard`／`RouteStopsPanel`／`RouteSequence`／`Search` 移除英文小字行；UI 文案改用 `t()` 字典（導覽、票價、分鐘、Google Maps、反轉方向、推算、錯誤按鈕等）。 |
 | **改成款式 B 毛玻璃設計** | 全站冰藍／午夜漸層背景＋`pointer-events-none` 光暈；頂部改毛玻璃膠囊 Header（`rounded-[22px]`、`bg-white/85 backdrop-blur-xl`），右側 `[中 | EN]` 分段切換與日夜按鈕；`BottomNav` 改底部懸浮島 Dock（`fixed bottom-3 inset-x-4 mx-auto max-w-sm rounded-full`、選中 Tab 藍紫漸層）。 |
 | **首頁地圖要置頂，往下滑自動縮小** | `Nearby` 以 `sticky` 容器把地圖貼在 Header 下方常駐（`top: calc(var(--app-header-h) + 0.5rem)`）；`StopMap` 新增 `collapsed`／`onToggleCollapse`，高度 210px↔138px（約 1/3）配 `transition-[height] duration-300 ease-out`，並以 `transitionend`＋保險計時器觸發 `invalidateSize()`。scroll 門檻：`>36` 收起、`<=12` 展開；手動「展開全圖」後要再下滑 >120px 才重新收起。Google Maps 按鈕改為右上常駐毛玻璃膠囊，地圖底部的定位資訊濃縮成單行毛玻璃膠囊（綠點、狀態、重新定位／更新／展開全圖）。 |
+| **搜尋／站序頁要有全線軌跡地圖** | `StopMap` 新增 route mode（`routeStops`／`focusedStopId`／`onClearFocus`）：`L.polyline`（#0ea5e9、weight 4）、起點綠終點琥珀、未聚焦時 `fitBounds` 全線、聚焦時 `flyTo` 17 並顯示站名、Google Maps 連結跟隨聚焦站、左上「◎ 顯示全線軌跡」清除聚焦（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 `React.lazy` 置頂 sticky 顯示地圖；新增 `useMapCollapse` 統一捲動收起（Search 監聽 window、站序頁監聽清單 `onScroll`），`RouteStopsPanel` 以 `topOffset` 把返回列貼在地圖下緣。 |
 

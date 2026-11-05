@@ -76,6 +76,7 @@ const STRINGS = {
     'Open this stop in Google Maps (Street View & walking directions)',
   ],
   'map.expand': ['展開全圖', 'Expand map'],
+  'map.showRoute': ['顯示全線軌跡', 'Show full route'],
   'map.collapse': ['收起地圖', 'Collapse map'],
 
   'stop.platforms': ['{n} 個站位', '{n} platforms'],

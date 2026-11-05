@@ -28,14 +28,13 @@ function escapeHtml(value) {
 }
 
 /**
- * 站點圖釘：選中的站點放大為琥珀色並顯示站名標籤，其餘為天藍色圓點。
- * 使用 divIcon 取代 Leaflet 預設圖片圖釘，避免 bundler 找不到 marker-icon.png。
+ * 站點圖釘：以 divIcon 取代 Leaflet 預設圖片圖釘（避免 bundler 找不到 marker-icon.png）。
+ * `color`／`size` 由呼叫端決定（附近站點、全線軌跡起終點、聚焦站點各有不同顏色），
+ * `showLabel` 為 true 時在圖釘右側顯示站名。
  */
-function createStopIcon({ name, selected, isDark }) {
-  const size = selected ? 16 : 12
-  const color = selected ? '#f59e0b' : isDark ? '#38bdf8' : '#0284c7'
+function createStopIcon({ name, color, size, showLabel, isDark }) {
   const pin = `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.45)"></span>`
-  const label = selected
+  const label = showLabel
     ? `<span style="position:absolute;left:${size + 6}px;top:50%;transform:translateY(-50%);white-space:nowrap;border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:600;line-height:1.5;background:${
         isDark ? 'rgba(15,23,42,.92)' : 'rgba(255,255,255,.96)'
       };color:${isDark ? '#f8fafc' : '#0f172a'};box-shadow:0 2px 8px rgba(15,23,42,.25)">${escapeHtml(name)}</span>`
@@ -83,6 +82,13 @@ function useIsDark() {
  * - 地圖底部內嵌定位狀態膠囊：綠點、狀態文字、重新定位／更新按鈕；
  *   收起時多一顆「展開全圖」按鈕，讓使用者暫時恢復完整高度。
  *
+ * 全線軌跡模式（route mode，用於搜尋頁與站序頁）：
+ * - 傳入 `routeStops`（依官方站序排列、含 lat／lng）即改畫全線：天藍色 `L.polyline`（#0ea5e9、4px）
+ *   串起所有有座標的站點，起點綠、終點琥珀、沿途為天藍圓點。
+ * - 未聚焦任何站點（`focusedStopId == null`）時 `fitBounds(..., { padding: [24, 24] })` 顯示全線；
+ *   聚焦單站時 `flyTo(..., 17)` 並顯示站名，Google Maps 按鈕也改指向該站。
+ * - 聚焦時左上角出現「◎ 顯示全線軌跡」，呼叫 `onClearFocus` 回到全線總覽。
+ *
  * @param {object} props
  * @param {{lat:number,lng:number}|null} [props.center] 使用者位置（地圖初始／更新視角）
  * @param {{lat:number,lng:number}|null} [props.userLocation] 藍點位置
@@ -99,6 +105,9 @@ function useIsDark() {
  * @param {number|null} [props.updatedAt] 定位更新時間
  * @param {boolean} [props.collapsed] 是否縮小為 138px
  * @param {() => void} [props.onToggleCollapse] 點擊「展開全圖」時切換高度
+ * @param {Array<object>|null} [props.routeStops] 全線站序（含 lat／lng／seq）；傳入即進入全線軌跡模式
+ * @param {string|number|null} [props.focusedStopId] 目前聚焦的單一站點 ID（null 代表顯示全線）
+ * @param {() => void} [props.onClearFocus] 點「顯示全線軌跡」時清除聚焦
  */
 export default function StopMap({
   center = null,
@@ -116,14 +125,28 @@ export default function StopMap({
   updatedAt = null,
   collapsed = false,
   onToggleCollapse,
+  routeStops = null,
+  focusedStopId = null,
+  onClearFocus,
 }) {
   const isDark = useIsDark()
   const { t, pickLang } = useLanguage()
   const mapElRef = useRef(null)
   const mapWrapRef = useRef(null)
   const mapRef = useRef(null)
+  const zoomHiddenRef = useRef(false)
   // 只有第一次掛載時需要初始視角，之後的移動交給 center／focus 兩個 effect
   const initialCenterRef = useRef(center)
+
+  /** 有傳入有效站序即進入「全線軌跡模式」 */
+  const routeMode = Boolean(routeStops && routeStops.length > 0)
+
+  // 目前聚焦的站點（route mode 由列表點選；一般模式為選中站點）
+  const focusedStop = useMemo(() => {
+    if (focusedStopId == null) return null
+    const pool = routeMode ? routeStops : stops
+    return pool.find((stop) => String(stop.id) === String(focusedStopId)) ?? null
+  }, [focusedStopId, routeMode, routeStops, stops])
 
   useEffect(() => {
     const container = mapElRef.current
@@ -146,6 +169,22 @@ export default function StopMap({
     }
   }, [])
 
+  // 全線軌跡模式且聚焦單站時，左上角會出現「顯示全線軌跡」按鈕；
+  // 暫時隱藏 Leaflet 的 +/- 控制項避免重疊（雙指縮放仍可用）。
+  useEffect(() => {
+    const map = mapRef.current
+    const control = map?.zoomControl
+    if (!map || !control) return
+    const shouldHide = routeMode && focusedStopId != null
+    if (shouldHide && !zoomHiddenRef.current) {
+      control.remove()
+      zoomHiddenRef.current = true
+    } else if (!shouldHide && zoomHiddenRef.current) {
+      control.addTo(map)
+      zoomHiddenRef.current = false
+    }
+  }, [routeMode, focusedStopId])
+
   // OSM 只有淺色圖磚；深色模式加 .map-tiles-dark 以 CSS filter 反轉，主題改變時整層換掉
   useEffect(() => {
     const map = mapRef.current
@@ -161,32 +200,105 @@ export default function StopMap({
     }
   }, [isDark])
 
-  // 附近站點圖釘；選中站點高亮
+  // 站點圖釘：一般模式標示附近站點；全線軌跡模式依站序畫出所有站點，
+  // 起點綠、終點琥珀、沿途天藍，聚焦站放大並顯示站名標籤。
   useEffect(() => {
     const map = mapRef.current
     if (!map) return undefined
     const layer = L.layerGroup().addTo(map)
+    const list = routeMode ? routeStops : stops
+    const lastIndex = list.length - 1
 
-    for (const stop of stops) {
-      if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng)) continue
-      const selected = favoriteKey(stop) === selectedKey
+    list.forEach((stop, index) => {
+      if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng)) return
       const name = pickLang(stop.nameTc, stop.nameEn) || stop.id
+      const isFocused = focusedStopId != null && String(stop.id) === String(focusedStopId)
+      const selected = favoriteKey(stop) === selectedKey
+      let color = isDark ? '#38bdf8' : '#0284c7'
+      let size = 12
+      let showLabel = false
+
+      if (routeMode) {
+        color = '#0ea5e9'
+        size = 9
+        if (index === 0) {
+          color = '#10b981'
+          size = 13
+        } else if (index === lastIndex) {
+          color = '#f59e0b'
+          size = 13
+        }
+      } else if (selected) {
+        color = '#f59e0b'
+        size = 16
+        showLabel = true
+      }
+
+      if (isFocused) {
+        color = '#f59e0b'
+        size = 16
+        showLabel = true
+      }
+
       const marker = L.marker([stop.lat, stop.lng], {
-        icon: createStopIcon({ name, selected, isDark }),
+        icon: createStopIcon({ name, color, size, showLabel, isDark }),
         title: name,
         alt: name,
         keyboard: true,
         riseOnHover: true,
-        zIndexOffset: selected ? 1000 : 0,
+        zIndexOffset: isFocused ? 1000 : selected ? 500 : 0,
       })
       marker.on('click', () => onSelectStop?.(stop))
       marker.addTo(layer)
-    }
+    })
 
     return () => {
       if (map.hasLayer(layer)) map.removeLayer(layer)
     }
-  }, [stops, selectedKey, isDark, onSelectStop, pickLang])
+  }, [routeMode, routeStops, stops, focusedStopId, selectedKey, isDark, onSelectStop, pickLang])
+
+  // 全線軌跡折線：天藍色 4px，串接所有具備座標的站點（依官方站序）
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !routeMode) return undefined
+    const latlngs = routeStops
+      .filter((stop) => Number.isFinite(stop?.lat) && Number.isFinite(stop?.lng))
+      .map((stop) => [stop.lat, stop.lng])
+    if (latlngs.length < 2) return undefined
+    const polyline = L.polyline(latlngs, {
+      color: '#0ea5e9',
+      weight: 4,
+      opacity: 0.9,
+      lineCap: 'round',
+      lineJoin: 'round',
+    }).addTo(map)
+    return () => {
+      if (map.hasLayer(polyline)) map.removeLayer(polyline)
+    }
+  }, [routeMode, routeStops])
+
+  // 尚未聚焦任何站點時，自動把整條路線塞進視野（padding 24）
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !routeMode || focusedStopId != null) return
+    const latlngs = routeStops
+      .filter((stop) => Number.isFinite(stop?.lat) && Number.isFinite(stop?.lng))
+      .map((stop) => [stop.lat, stop.lng])
+    if (latlngs.length === 0) return
+    if (latlngs.length === 1) {
+      map.setView(latlngs[0], 16, { animate: true })
+      return
+    }
+    map.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] })
+  }, [routeMode, routeStops, focusedStopId])
+
+  // 聚焦單一站點：平滑移動並放大到 17，該站標記會顯示站名
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !focusedStop) return
+    if (!Number.isFinite(focusedStop.lat) || !Number.isFinite(focusedStop.lng)) return
+    map.flyTo([focusedStop.lat, focusedStop.lng], 17, { duration: 0.8 })
+  }, [focusedStop])
 
   // 使用者目前位置藍點
   useEffect(() => {
@@ -248,19 +360,20 @@ export default function StopMap({
     [stops, selectedKey],
   )
 
-  // Google Maps 常駐連結：優先目前選中站點 → 使用者位置 → 地圖中心 → 預設視角
+  // Google Maps 常駐連結：聚焦站點 → 選中站點 → 全線第一個有座標的站 →
+  // 使用者位置 → 地圖中心 → 預設視角
   const mapsTarget = useMemo(() => {
-    if (
-      selectedStop &&
-      Number.isFinite(selectedStop.lat) &&
-      Number.isFinite(selectedStop.lng)
-    ) {
-      return selectedStop
-    }
-    if (userLocation) return userLocation
-    if (center) return center
-    return DEFAULT_CENTER
-  }, [selectedStop, userLocation, center])
+    const usable = (stop) =>
+      stop && Number.isFinite(stop.lat) && Number.isFinite(stop.lng) ? stop : null
+    return (
+      usable(focusedStop) ??
+      usable(selectedStop) ??
+      (routeMode ? usable(routeStops.find((stop) => usable(stop))) : null) ??
+      usable(userLocation) ??
+      usable(center) ??
+      DEFAULT_CENTER
+    )
+  }, [focusedStop, selectedStop, routeMode, routeStops, userLocation, center])
 
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsTarget.lat},${mapsTarget.lng}`
 
@@ -315,7 +428,35 @@ export default function StopMap({
           <span aria-hidden="true">↗</span>
         </a>
 
-        {/* 底部內嵌定位狀態膠囊（單行）；收起時可點「展開全圖」暫時恢復完整高度 */}
+        {/* 全線軌跡模式且聚焦單站：左上角回到全線總覽（此時暫時隱藏 Leaflet 縮放鈕避免重疊） */}
+        {routeMode && focusedStopId != null && onClearFocus && (
+          <button
+            type="button"
+            onClick={onClearFocus}
+            aria-label={t('map.showRoute')}
+            title={t('map.showRoute')}
+            className="absolute left-2 top-2 z-[1000] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
+          >
+            <span aria-hidden="true">◎</span>
+            {t('map.showRoute')}
+          </button>
+        )}
+
+        {/* 全線軌跡模式沒有定位資訊，收起時在左下角提供「展開全圖」 */}
+        {routeMode && collapsed && onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={t('map.expand')}
+            title={t('map.expand')}
+            className="absolute bottom-2 left-2 z-[400] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
+          >
+            {t('map.expand')} ▼
+          </button>
+        )}
+
+        {/* 一般模式：底部內嵌定位狀態膠囊（單行）；收起時可點「展開全圖」暫時恢復完整高度 */}
+        {!routeMode && (
         <div className="absolute inset-x-2.5 bottom-2 z-[400] flex items-center gap-1.5 rounded-full border border-white/70 bg-white/90 py-1 pl-3 pr-1 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-800/90">
           <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-[11px] leading-4">
@@ -360,6 +501,7 @@ export default function StopMap({
             </button>
           )}
         </div>
+        )}
       </div>
     </section>
   )

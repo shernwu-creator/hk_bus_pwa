@@ -62,7 +62,7 @@ src/
 ├─ App.jsx            # LanguageProvider＋Router（basename 跟隨 BASE_URL）＋毛玻璃膠囊 Header 與版面；/route/* 為路線站序頁（不經 AppShell）
 ├─ pages/             # Nearby / Search / Favorites / RouteSequence（路線站序頁，原視窗導覽）
 ├─ components/        # BusCard、StopSection、EtaSlots、StateViews…（純呈現）
-├─ hooks/             # useBusData（ETA 30 秒輪詢）、useLanguage（語言 Context）、useLocation、useFavorites、useTheme
+├─ hooks/             # useBusData（ETA 30 秒輪詢）、useLanguage（語言 Context）、useLocation、useMapCollapse（置頂地圖收起）、useFavorites、useTheme
 ├─ services/api.js    # 唯一資料層：快取、站點、路線站序、票價、ETA（KMB/CTB/GMB）
 ├─ services/staticData.js # public/data/*.json + IndexedDB 快取
 ├─ utils/             # format.js、routeLinks.js（站序頁的站內路徑組裝）
@@ -98,6 +98,11 @@ src/
   高度改變後必須 `map.invalidateSize()`（`transitionend` ＋ 320ms 保險）。scroll 門檻：`> 36` 收起、`<= 12` 展開；
   手動「展開全圖」後要再下滑 >120px 才重新自動收起。地圖底部定位膠囊與右上 Google Maps 按鈕都是毛玻璃膠囊
   （`backdrop-blur-md`），不要改回獨立的大卡片或把按鈕移出地圖。
+- **全線軌跡地圖**：`StopMap` 傳入 `routeStops` 即進入 route mode（`L.polyline` #0ea5e9／weight 4，起點綠、終點琥珀），
+  未聚焦 `fitBounds` 全線、聚焦 `flyTo(17)` 並把 Google Maps 連結指向該站，`onClearFocus` 回到全線；
+  左上「顯示全線軌跡」與 Leaflet 縮放鈕不可同時出現（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 lazy 載入
+  `StopMap` 並置頂顯示；捲動收起一律用 `src/hooks/useMapCollapse.js`（window 或容器 `onScroll`），
+  不要各自複製門檻邏輯。route mode 沒有定位資訊，不要顯示 Nearby 的定位膠囊。
 - **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
   「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
   展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。

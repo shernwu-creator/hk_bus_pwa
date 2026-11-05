@@ -28,6 +28,7 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
  * @param {(stop:object) => void} props.onToggleFavorite
  * @param {() => void} props.onRetry
  * @param {number|null} [props.etaUpdatedAt] ETA 批次更新的時間戳（推算時用來判斷資料是否新鮮）
+ * @param {string|null} [props.topOffset] 置頂地圖高度（例如 '146px'）；有值時返回列貼在地圖下方
  */
 export default function RouteStopsPanel({
   selected,
@@ -42,6 +43,7 @@ export default function RouteStopsPanel({
   onToggleFavorite,
   onRetry,
   etaUpdatedAt = null,
+  topOffset = null,
 }) {
   const { t, pickLang } = useLanguage()
   const [planEnabled, setPlanEnabled] = useState(false)
@@ -110,8 +112,14 @@ export default function RouteStopsPanel({
     <section className="space-y-2">
       {/* 返回列（路線資訊）與推算切換鈕固定在 Header 下方：站序很長時不管滑到哪裡，
           都能隨時返回路線清單或開關「推算各站到站時間」，與首頁 sticky Header 同一套邏輯。
-          負 margin 抵銷 main 的 padding，讓背景色貼齊左右邊緣、內容從下面滑過。 */}
-      <div className="sticky top-[var(--app-header-h)] z-10 -mx-3 -mt-3 space-y-2 border-b border-slate-200/70 bg-slate-50/90 px-3 pb-2 pt-3 backdrop-blur-lg dark:border-slate-800/80 dark:bg-slate-950/85">
+          有置頂地圖時（topOffset）改貼在地圖下緣；否則以負 margin 抵銷 main 的 padding，
+          讓背景色貼齊左右邊緣、內容從下面滑過。 */}
+      <div
+        className={`sticky z-10 -mx-3 space-y-2 border-b border-slate-200/70 bg-slate-50/90 px-3 pb-2 pt-3 backdrop-blur-lg dark:border-slate-800/80 dark:bg-slate-950/85 ${
+          topOffset ? '' : '-mt-3'
+        }`}
+        style={{ top: topOffset ? `calc(var(--app-header-h) + ${topOffset})` : 'var(--app-header-h)' }}
+      >
         <div className="card flex items-start gap-2 p-2.5">
           <button
             type="button"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.j
 import { TravelPlanBanner, TravelPlanChips, TravelPlanToggle } from '../components/TravelPlan.jsx'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLanguage from '../hooks/useLanguage.js'
+import useMapCollapse from '../hooks/useMapCollapse.js'
 import {
   distanceInMeters,
   filterByRoute,
@@ -29,6 +30,9 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
 
 /** 與 useBusData 相同的 30 秒輪詢節奏 */
 const REFRESH_INTERVAL = 30000
+
+/** Leaflet 只在站序頁需要，動態載入避免拖慢第一次可互動時間 */
+const StopMap = lazy(() => import('../components/StopMap.jsx'))
 
 /** 站名正規化：去掉九巴站牌編號（例如「創紀之城 (KT342)」→「創紀之城」）、空白與大小寫差異 */
 function normalizeName(value) {
@@ -434,6 +438,11 @@ export default function RouteSequence() {
   const [liveEtasByStopId, setLiveEtasByStopId] = useState(() => new Map())
   const listRef = useRef(null)
   const sourceRef = useRef(null)
+  // 全線軌跡地圖：focusedStopId 為 null 時顯示全線，點選站點後聚焦該站
+  const [focusedStopId, setFocusedStopId] = useState(null)
+  const { collapsed, toggleCollapse, handleScroll, resetCollapse } = useMapCollapse()
+  // 站序載入後會用程式把來源站捲到清單中央，那次 scroll 不應觸發地圖收起
+  const ignoreNextListScrollRef = useRef(false)
 
   // 站序載入完成時要用「當下」的 URL 參數找回來源站；以 ref 保存可避免把 stop／name
   // 變成站序請求的依賴（否則每次點站點更新 URL 都會重新抓一次全線站序）。
@@ -607,7 +616,13 @@ export default function RouteSequence() {
     const list = listRef.current
     const item = sourceRef.current
     if (!list || !item) return
-    list.scrollTop = Math.max(0, item.offsetTop - list.clientHeight / 2 + item.clientHeight / 2)
+    const target = Math.max(0, item.offsetTop - list.clientHeight / 2 + item.clientHeight / 2)
+    // 這是程式捲動（把來源站置中），標記起來避免觸發地圖自動收起；
+    // 若目標位置與目前相同（例如來源站就是第一站）就不會觸發 scroll，不必標記。
+    if (Math.abs(list.scrollTop - target) > 1) {
+      ignoreNextListScrollRef.current = true
+      list.scrollTop = target
+    }
   }, [stopsSignature])
 
   const firstStop = stops[0]
@@ -634,6 +649,8 @@ export default function RouteSequence() {
   // URL 的 stop／name 仍會 replace 更新（分享／重新整理用），但不影響目前已展開的站。
   const handleToggleStop = useCallback(
     (stop) => {
+      // 點選任一站點時，置頂地圖立即聚焦該站（可再按「顯示全線軌跡」回到全線）
+      setFocusedStopId(stop.id)
       const isExpanded = expandedStopIds.has(stop.id)
       setExpandedStopIds((prev) => {
         const next = new Set(prev)
@@ -662,6 +679,22 @@ export default function RouteSequence() {
     },
     [expandedStopIds, navigate, searchParams],
   )
+
+  // 站序清單內部捲動 → 地圖縮小 1/3（忽略程式置中那次 scroll）
+  const handleListScroll = useCallback(
+    (event) => {
+      if (ignoreNextListScrollRef.current) {
+        ignoreNextListScrollRef.current = false
+        return
+      }
+      handleScroll(event)
+    },
+    [handleScroll],
+  )
+
+  // 點地圖圖釘：聚焦該站；左上角「顯示全線軌跡」可清除
+  const handleMapSelectStop = useCallback((stop) => setFocusedStopId(stop.id), [])
+  const clearMapFocus = useCallback(() => setFocusedStopId(null), [])
 
   // 反轉方向：以路線索引找出另一方向，更新 URL（replace），沿用站名讓新方向自動展開同一站
   const handleReverse = useCallback(async () => {
@@ -719,6 +752,9 @@ export default function RouteSequence() {
       if (target.destination) next.set('dest', target.destination)
 
       const pathname = `/route/${encodeURIComponent(operator)}/${encodeURIComponent(target.route)}/${target.direction}`
+      // 換方向後地圖回到全線總覽、高度也回到展開狀態
+      setFocusedStopId(null)
+      resetCollapse()
       navigate(
         { pathname, search: next.toString() ? `?${next.toString()}` : '' },
         { replace: true },
@@ -742,6 +778,7 @@ export default function RouteSequence() {
     routeSeq,
     serviceType,
     t,
+    resetCollapse,
   ])
 
   // 「返回」：站內已改為原視窗導覽，因此直接用 Router 返回上一頁，
@@ -870,6 +907,24 @@ export default function RouteSequence() {
 
         {stopsStatus === 'ready' && stops.length > 0 && (
           <>
+            {/* 全線軌跡地圖固定在站序清單上方（清單本身滾動，地圖不會被捲走） */}
+            <div className="sticky top-0 z-10 shrink-0">
+              <Suspense
+                fallback={
+                  <div className="skeleton h-[210px] w-full rounded-[22px]" aria-hidden="true" />
+                }
+              >
+                <StopMap
+                  routeStops={stops}
+                  focusedStopId={focusedStopId}
+                  onClearFocus={clearMapFocus}
+                  onSelectStop={handleMapSelectStop}
+                  collapsed={collapsed}
+                  onToggleCollapse={toggleCollapse}
+                />
+              </Suspense>
+            </div>
+
             <div className="flex shrink-0 items-center justify-between gap-2 px-1">
               <span className="flex min-w-0 items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                 <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -891,6 +946,7 @@ export default function RouteSequence() {
 
             <ol
               ref={listRef}
+              onScroll={handleListScroll}
               aria-label={t('route.full')}
               className="card relative min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5"
             >
