@@ -72,7 +72,9 @@ function useIsDark() {
  * - 底圖跟隨深淺色主題：淺色用官方 OSM 圖磚，深色以 CSS filter 反轉，免 API Key。
  * - 藍點為使用者目前位置；附近站點以圖釘標示，選中的站點為琥珀色並顯示站名。
  * - 點擊圖釘會呼叫 `onSelectStop(stop)`，由 Nearby 展開站點卡片並捲動到該卡片。
- * - 右上角「在 Google Maps 開啟此站」為外部輔助（街景／步行導航），右下角為重新定位。
+ * - 右上角「在 Google Maps 開啟此站」為外部輔助（街景／步行導航），
+ *   以 `target="_blank" rel="noopener noreferrer"` 另開新頁／喚醒 Google Maps App，
+ *   不影響站內原視窗的瀏覽狀態；右下角為重新定位。
  *
  * @param {object} props
  * @param {{lat:number,lng:number}|null} [props.center] 使用者位置（地圖初始／更新視角）
@@ -236,7 +238,7 @@ export default function StopMap({
           <a
             href={mapsUrl}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             title="在 Google Maps 開啟此站（可查看街景與步行導航）"
             className="absolute right-2 top-2 z-[1000] inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-200 dark:hover:bg-slate-900"
           >

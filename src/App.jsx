@@ -1,12 +1,20 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigationType,
+} from 'react-router-dom'
 import { BusFront, Moon, Sun } from 'lucide-react'
 import BottomNav from './components/BottomNav.jsx'
 import useTheme from './hooks/useTheme.js'
 
 /**
  * 頁面層級 code splitting：主殼（Header／BottomNav）先載入，
- * 各頁面與「新視窗站序頁」各自成為獨立 chunk，縮短首次可互動時間。
+ * 各頁面與「路線站序頁」各自成為獨立 chunk，縮短首次可互動時間。
  */
 const Nearby = lazy(() => import('./pages/Nearby.jsx'))
 const Search = lazy(() => import('./pages/Search.jsx'))
@@ -30,7 +38,7 @@ function PageFallback() {
   )
 }
 
-/** 新視窗站序頁的載入畫面（全螢幕、無底部導覽） */
+/** 路線站序頁的載入畫面（全螢幕、無底部導覽） */
 function RouteWindowFallback() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-3 px-3 py-4" aria-busy="true">
@@ -39,6 +47,23 @@ function RouteWindowFallback() {
       <div className="skeleton h-12 w-full rounded-2xl" />
     </div>
   )
+}
+
+/**
+ * 站內切換頁面（PUSH／REPLACE）時把視窗捲回頂部，避免新頁沿用上一頁的捲動位置。
+ * 瀏覽器上一頁／下一頁（POP）交給瀏覽器還原原本的捲動位置，站序頁按「返回」才不會
+ * 讓使用者回到附近頁頂端、要重新滑到原本的站點。
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  const navigationType = useNavigationType()
+
+  useEffect(() => {
+    if (navigationType === 'POP') return
+    window.scrollTo(0, 0)
+  }, [pathname, navigationType])
+
+  return null
 }
 
 function Header() {
@@ -98,7 +123,7 @@ function Header() {
   )
 }
 
-/** 主要版面：Header + 置中內容 + 底部導覽（不含新視窗頁面） */
+/** 主要版面：Header + 置中內容 + 底部導覽（不含路線站序頁） */
 function AppShell() {
   return (
     <div className="flex min-h-screen flex-col">
@@ -116,6 +141,7 @@ function AppShell() {
 export default function App() {
   return (
     <BrowserRouter basename={BASENAME}>
+      <ScrollToTop />
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/" element={<Nearby />} />
@@ -123,7 +149,7 @@ export default function App() {
           <Route path="/favorites" element={<Favorites />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
-        {/* 由站點卡片開啟的獨立視窗：顯示整條路線站序、各站到站時間與反轉方向 */}
+        {/* 由站點卡片以原視窗導覽切換：顯示整條路線站序、各站到站時間與反轉方向 */}
         <Route
           path="/route/:operator/:route/:direction"
           element={

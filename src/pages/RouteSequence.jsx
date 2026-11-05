@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   ChevronDown,
-  ExternalLink,
   MapPin,
   RefreshCw,
   Route as RouteIcon,
@@ -29,8 +28,6 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
 
 /** 與 useBusData 相同的 30 秒輪詢節奏 */
 const REFRESH_INTERVAL = 30000
-/** 首頁網址（子路徑部署時由 Vite 的 BASE_URL 提供） */
-const HOME_URL = import.meta.env.BASE_URL
 
 /** 站名正規化：去掉九巴站牌編號（例如「創紀之城 (KT342)」→「創紀之城」）、空白與大小寫差異 */
 function normalizeName(value) {
@@ -369,7 +366,7 @@ function StopEtaPanel({
 }
 
 /**
- * 新視窗路線站序頁
+ * 路線站序頁（原視窗導覽）
  *
  * 所有狀態都來自 URL（路徑的 operator／route／direction 與 query 的 stop／name／
  * siblings／serviceType／routeId／routeSeq／orig／dest），因此可直接分享、重新整理，
@@ -724,43 +721,27 @@ export default function RouteSequence() {
     serviceType,
   ])
 
-  // 「返回」依序嘗試：回到開啟此視窗的原分頁 → 上一頁 → 首頁。
-  // 站序頁通常是從 App 以 window.open 開啟，保留 window.opener 才能聚焦並關閉本視窗；
-  // 若 popup 被封鎖而改成同視窗導覽，就用 history.back() 回到原本的頁面。
+  // 「返回」：站內已改為原視窗導覽，因此直接用 Router 返回上一頁，
+  // 不再處理 window.opener／window.close()（新視窗早已不存在）。
+  // - 由站點卡切換過來：history 有上一筆（idx > 0 或 length > 1）→ navigate(-1)，
+  //   回到原頁面並保留它原本的捲動與展開狀態。
+  // - 直接貼網址／重新整理開啟：沒有上一頁 → 導回首頁。
   const handleBack = useCallback(() => {
-    if (window.opener && !window.opener.closed) {
-      try {
-        window.opener.focus()
-      } catch {
-        // 忽略：跨來源或瀏覽器不允許 focus 時，仍嘗試關閉本視窗
-      }
-      window.close()
-      // 有些環境（PWA／被使用者設定攔截）不允許 script 關閉視窗：退回 App 首頁
-      window.setTimeout(() => {
-        if (!window.closed) window.location.assign(HOME_URL)
-      }, 200)
+    const historyIndex = Number(window.history.state?.idx)
+    const canGoBack =
+      (Number.isFinite(historyIndex) && historyIndex > 0) || window.history.length > 1
+    if (canGoBack) {
+      navigate(-1)
       return
     }
+    navigate('/')
+  }, [navigate])
 
-    // 同視窗 fallback：只有 referrer 是同源 App 頁面時才 history.back()，
-    // 避免「直接貼網址開新分頁」時 back 回到空白頁或外部網站。
-    const sameOriginReferrer = (() => {
-      try {
-        return (
-          Boolean(document.referrer) &&
-          new URL(document.referrer).origin === window.location.origin
-        )
-      } catch {
-        return false
-      }
-    })()
-    if (window.history.length > 1 && sameOriginReferrer) {
-      window.history.back()
-      return
-    }
-
-    window.location.assign(HOME_URL)
-  }, [])
+  // 切換站內頁面（含反轉方向造成的 route／direction 變更）時一律捲回頂部，
+  // 不沿用上一頁或上一個方向的捲動位置。
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [operator, route, directionValue])
 
   const isReversing = reverseStatus === 'loading'
 
@@ -805,8 +786,8 @@ export default function RouteSequence() {
 
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1 truncate text-[10px] text-slate-400 dark:text-slate-500">
-              <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-              獨立視窗 · 到站資料每 30 秒自動更新
+              <RefreshCw className="h-3 w-3 shrink-0" aria-hidden="true" />
+              全線站序 · 到站資料每 30 秒自動更新
             </span>
             <button
               type="button"

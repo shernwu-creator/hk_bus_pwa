@@ -59,13 +59,13 @@ codegraph impact <symbol>                 # 改動影響範圍（改 API／hook 
 
 ```
 src/
-├─ App.jsx            # Router（basename 跟隨 BASE_URL）＋ 版面；/route/* 為獨立視窗頁
-├─ pages/             # Nearby / Search / Favorites / RouteSequence（新視窗站序頁）
+├─ App.jsx            # Router（basename 跟隨 BASE_URL）＋ 版面；/route/* 為路線站序頁（不經 AppShell）
+├─ pages/             # Nearby / Search / Favorites / RouteSequence（路線站序頁，原視窗導覽）
 ├─ components/        # BusCard、StopSection、EtaSlots、StateViews…（純呈現）
 ├─ hooks/             # useBusData（ETA 30 秒輪詢）、useLocation、useFavorites、useTheme
 ├─ services/api.js    # 唯一資料層：快取、站點、路線站序、票價、ETA（KMB/CTB/GMB）
 ├─ services/staticData.js # public/data/*.json + IndexedDB 快取
-├─ utils/             # format.js、routeLinks.js（開新視窗 URL 組裝）
+├─ utils/             # format.js、routeLinks.js（站序頁的站內路徑組裝）
 └─ data/fares.json    # 由 sync:data 產生，勿手改
 ```
 
@@ -82,18 +82,23 @@ src/
 - **城巴／小巴索引**：城巴站點、小巴站點與路線索引來自 `public/data/*.json`（`npm run sync:data` 產生，
   勿手改），前端透過 IndexedDB 延遲載入。
 - **子路徑部署**：`vite.config.js` 的 `base`、Router 的 `basename`、manifest 的 `start_url/scope`
-  三處必須一致（GitHub Pages 為 `/hk_bus_pwa/`）；新增 `window.open` URL 時務必以
-  `import.meta.env.BASE_URL` 組路徑，不可寫死 `/`。
-- **新視窗站序頁**：路徑 `/route/:operator/:route/:direction`，query 參數
+  三處必須一致（GitHub Pages 為 `/hk_bus_pwa/`）；站內導覽一律用 react-router 的 `<Link>`／`useNavigate()`
+  （basename 由 Router 處理，不可再手動拼 `BASE_URL` 或 `window.open`）；只有外部連結（例如 Google Maps）
+  使用 `target="_blank" rel="noopener noreferrer"`。
+- **路線站序頁**：路徑 `/route/:operator/:route/:direction`，query 參數
   `stop`（要高亮／展開的站）、`name`、`siblings`、`serviceType`、`routeId`、`routeSeq`、`orig`、`dest`。
+  由站點卡以 `navigate()` 原視窗切換（`buildRouteSequencePath()`，見 `src/utils/routeLinks.js`）。
   「反轉序列」按鈕會切到同路線的另一方向（GMB 需重新對照 `routeId/routeSeq`）。
-  「返回」按鈕優先用 `window.opener` 回到原分頁（因此 `openRouteSequence` 刻意不清除 opener），
-  其次 `history.back()`，最後回首頁。站序列可以收藏站點（與主 App 共用 `hkb:favorites:v1`）。
+  「返回」按鈕：`history.state.idx > 0`／`history.length > 1` 時 `navigate(-1)`，否則 `navigate('/')`；
+  不要恢復 `window.opener`／`window.close()` 邏輯。站序列可以收藏站點（與主 App 共用 `hkb:favorites:v1`）。
 - **附近站點排序**：小巴（GMB）一律排在最後；同組內已收藏站點優先於距離，其餘依距離。
   不要為「統一排序」而改動路線站序（站序必須保持官方 seq 次序）。
 - **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
   「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
   展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。
+- **定位記憶**：`useLocation` 以 `hkb:location-consent`（只存 `'granted'`）與 `hkb:last-location`
+  （`{ lat, lng, accuracy, updatedAt }`）記憶授權與座標，讀寫一律 `try / catch`；初始化先用快取座標渲染再背景更新，
+  不要改回「每次都要使用者手動點定位」。被拒（`error.code === 1`）時清除授權記憶並保留 iOS 的 Safari 設定提示。
 - **字級**：站點名稱用 `text-lg`（18px）；路線號碼在卡片／標題用 `text-xl`（20px）、
   在搜尋結果與站序面板標題用 `text-lg`（18px）。改版面時保持這組層級。
 
@@ -166,4 +171,4 @@ npm run lint && npm run build
 3. 執行 `codegraph sync` 更新圖譜。
 4. 不要提交 `dist/`、`.codegraph/`、`node_modules/`、`public/data/*.json`（除非是 `sync:data` 的刻意更新）。
 5. commit message 用 conventional commits（`feat:`／`fix:`／`perf:`／`docs:`／`refactor:`），
-   描述用繁體中文，例如 `feat: 站點路線改以新視窗顯示站序與反轉方向`。
+   描述用繁體中文，例如 `feat: 站內路由改為原視窗導覽並優化 iOS 定位記憶`。

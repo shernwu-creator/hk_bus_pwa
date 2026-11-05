@@ -4,7 +4,7 @@
 
 首頁頂部是互動式地圖（Leaflet + OpenStreetMap 圖磚，免 API Key、免計費），站點列表與地圖雙向聯動：附近站點一載入就預設展開最近一站並把地圖移過去；點列表中的站點會 `flyTo` 該站，點地圖圖釘則會展開並捲動到對應的站點卡片。
 
-站點內點選任一路線，會**另開視窗**顯示該方向的全線站序：自動標示你開啟時所在的站點並展開最近三班車，其他站點可逐一展開查看，也可一鍵**反轉方向**查另一邊的車。
+站點內點選任一路線，會在**原視窗**直接切換到該方向的全線站序：自動標示你開啟時所在的站點並展開最近三班車，其他站點可逐一展開查看，也可一鍵**反轉方向**查另一邊的車；只有 Google Maps 外部連結仍會另開新頁／喚醒 App。
 
 資料全部來自 [DATA.GOV.HK](https://data.gov.hk/) 的公開 API，本專案非官方產品；地圖圖磚由 [OpenStreetMap](https://www.openstreetmap.org/) 提供（使用政策：<https://operations.osmfoundation.org/policies/tiles/>）。
 開發規範（AI 代理必讀）見 [`AGENTS.md`](./AGENTS.md)：優先使用 CodeGraph 探索程式結構，禁止大範圍 grep 與讀檔。
@@ -24,6 +24,7 @@ npm run lint         # oxlint
 ```
 
 > 定位功能只在 `https` 或 `localhost` 下可用；其他來源會自動退回預設座標（尖沙咀天星碼頭）。
+> 成功定位後會以 `hkb:location-consent`／`hkb:last-location` 記住授權與座標，下次開啟先顯示上次位置再背景更新（見 6.10）。
 > `npm run preview` 預設會開啟 `http://localhost:4173/hk_bus_pwa/`，因為建置時的 `base` 是子路徑。
 
 ### 資料同步腳本
@@ -138,18 +139,18 @@ src/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
 │  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 站序 → ETA
 │  ├─ Favorites.jsx          # 已收藏站點（localStorage）：同名／相近站位分組顯示，可整組或單站取消收藏
-│  └─ RouteSequence.jsx      # 新視窗站序頁：全線站序、各站三班 ETA、反轉方向（URL 可分享）
+│  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
-│  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊開新視窗看站序）
+│  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊在原視窗開啟站序）
 │  ├─ StopMap.jsx            # 附近站點互動地圖（Leaflet + OpenStreetMap 圖磚；深色以 CSS filter 轉換、站點 flyTo 聯動）
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
-│  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與新視窗站序頁共用；可切換成推算基準按鈕）
+│  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
 │  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header 下方）
 │  ├─ SearchBar.jsx / OperatorBadge.jsx / BottomNav.jsx
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
 ├─ hooks/
-│  ├─ useLocation.js         # Geolocation + 權限/錯誤狀態 + 預設座標
+│  ├─ useLocation.js         # Geolocation + 權限/錯誤狀態＋localStorage 授權記憶與座標快取
 │  ├─ useBusData.js          # ETA 抓取與 30 秒輪詢（Promise.allSettled；切到背景停止、回前景立即更新）＋路線卡排序用的剩餘距離
 │  ├─ useFavorites.js        # localStorage「hkb:favorites:v1」（含 routes / siblingIds）
 │  └─ useTheme.js            # 深色模式「hkb:theme」＋ html.dark
@@ -162,7 +163,7 @@ src/
    ├─ format.js              # 距離／時間／分鐘／服務類型文字；normalizeStopName()／stopPlatformCode() 清理站名代號
    ├─ travelPlan.js          # 車程／預計到達推算（幾何估算＋實時 ETA 校準；車速、繞行係數、停站時間等參數集中在這裡）
    ├─ routeOrder.js          # 站點內路線卡排序（剩餘距離長途優先、終點站最後）
-   └─ routeLinks.js          # 新視窗站序頁的 URL 組裝與 window.open（含 BASE_URL 前綴）
+   └─ routeLinks.js          # 路線站序頁的站內路徑組裝（交給 useNavigate；basename 由 Router 處理）
 
 public/
 ├─ data/                     # 由 sync:data 產生（請勿手改）
@@ -226,15 +227,18 @@ scripts/
 `getFare(operator, route, serviceType)` 查 `fares.json`（key：`路線|service_type`），查不到回傳 `null`，UI 顯示「票價待查」。
 共同營運的路線會同時提供 KMB 與 CTB 兩份資料；小巴沒有官方票價來源。
 
-### 6.5 新視窗路線站序（RouteSequence）
+### 6.5 路線站序（RouteSequence，原視窗導覽）
 
-站點展開後，每一張路線卡片都是「在新視窗查看全線站序」的按鈕（右下方有 ↗ 提示）：
+站點展開後，每一張路線卡片都是「查看全線站序」的按鈕：
 
-1. `StopSection` 不再行內展開，改呼叫 `openRouteSequence(entry, stop)`；`routeLinks.js` 以 `import.meta.env.BASE_URL` 組出
-   `{base}route/:operator/:route/:direction?stop=…`（query 可帶 `name`／`siblings`／`serviceType`／`routeId`／`routeSeq`／`orig`／`dest`）。
-   `window.open(url, '_blank')` 被擋時退回同視窗導覽，因此 PWA／彈窗封鎖環境仍可開啟。
-2. 新視窗頁 `RouteSequence.jsx` 註冊在 `App.jsx` 的 `/route/:operator/:route/:direction`（不經 AppShell，全螢幕、無底部導覽），
-   所有狀態都從 URL 還原，因此**可直接分享、重新整理、上一頁**。
+1. `StopSection` 不再行內展開，改以 `buildRouteSequencePath(entry, stop)` 組出站內路徑
+   `/route/:operator/:route/:direction?stop=…`（query 可帶 `name`／`siblings`／`serviceType`／`routeId`／`routeSeq`／`orig`／`dest`），
+   再用 react-router 的 `navigate()` **在原視窗**切換，不再 `window.open()`。路徑不含 `BASE_URL`，
+   `BrowserRouter` 的 basename 會自動處理子路徑；只有 Google Maps 這類外部連結維持
+   `target="_blank" rel="noopener noreferrer"`（手機可喚醒 App 或另開新分頁，不影響站內原視窗狀態）。
+2. 站序頁 `RouteSequence.jsx` 註冊在 `App.jsx` 的 `/route/:operator/:route/:direction`（不經 AppShell，全螢幕、無底部導覽），
+   所有狀態都從 URL 還原，因此**可直接分享、重新整理、上一頁**；站內切換頁面（PUSH／REPLACE）會自動捲回頂部，
+   瀏覽器上一頁／下一頁（POP）則還原原本的捲動位置。
 3. 頁面以 `getRouteStops()` 取得全線站序（KMB／CTB 用 `route + direction + serviceType`；GMB 需要 `routeId + routeSeq`）。
 4. 來源站（query `stop`，並同時比對 `siblings` 月台 ID）會自動高亮並展開：
    - 以 `getStopEtas()` 查該站 ETA，再以「路線＋方向」過濾；若同一方向有多個目的地分組（循環線去程／回程），
@@ -250,12 +254,10 @@ scripts/
    展開狀態記在 component state；URL 的 `stop` 只作「來源站」與分享用途，重新整理時只會展開該站。
 6. **站點收藏**：每一列右側（摺疊箭頭左邊）都有星號，可即時收藏／取消收藏站點；收藏與主 App 共用
    `hkb:favorites:v1`，靠 `storage` 事件跨分頁同步（站序頁收藏後，主 App 的「收藏」頁立即出現）。
-7. **返回**：標題列左上角「← 返回」會依序嘗試：
-   - `window.opener` 存在 → `opener.focus()` 後 `window.close()`（回到原本的 App 分頁，原本展開的站點狀態仍在）；
-     若瀏覽器不允許 script 關閉視窗，退回 App 首頁；
-   - 同視窗 fallback（彈窗被擋）且 `document.referrer` 是同源 App → `history.back()`；
-   - 其他（直接貼 URL 開新分頁）→ 返回 App 首頁。
-   為此 `openRouteSequence()` 刻意不再清除 `window.opener`。
+7. **返回**：標題列左上角「← 返回」不再使用 `window.opener`／`window.close()`，改為：
+   - `window.history.state?.idx > 0` 或 `window.history.length > 1` → `navigate(-1)` 回到上一頁
+     （由站點卡切換過來時，原本展開的站點與捲動位置仍在）；
+   - 直接貼網址／重新整理開啟（沒有上一頁）→ `navigate('/')` 回首頁。
 8. **反轉方向**：`getRouteIndex()` 找出同路線的另一方向（KMB 沿用 serviceType、優先 1；GMB 以起訖站對照＋相反 routeSeq 選出折返路線），
    以 `navigate(..., { replace: true })` 更新 URL（不新增瀏覽紀錄）並重新抓站序。
    反向站點 ID 通常不同，因此會先用站名、再用座標在反向站序中找回最接近的站點並自動展開；
@@ -371,6 +373,26 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 個別路線站序讀取失敗或逾時就沒有 `progress`，該卡退回以到站時間排序
 （排在「有 progress 的路線」之後、「終點站」之前）；缺座標時仍有 `progress`，只是改用剩餘站數排序。兩者都不影響 ETA 顯示。
 
+### 6.10 定位授權記憶與座標快取（useLocation）
+
+iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，而且「加入主畫面」後的 PWA
+有時不會再顯示系統定位授權視窗；因此 `src/hooks/useLocation.js` 另外用 `localStorage` 記憶
+（全部以 `try / catch` 包覆，無痕模式寫入失敗只會失去記憶、不影響定位）：
+
+| Key | 格式 | 說明 |
+| --- | --- | --- |
+| `hkb:location-consent` | `'granted'` | 成功取得定位時寫入；`PERMISSION_DENIED` 時清除 |
+| `hkb:last-location` | `{"lat":22.3,"lng":114.1,"accuracy":20,"updatedAt":1730000000000}` | 上次成功的座標；JSON 壞掉／欄位缺漏／數值不合理時忽略 |
+
+行為：
+
+1. **初始化**：有 `hkb:last-location` 就立即用快取座標渲染附近站點（不必等 GPS 讓畫面空白），同時背景靜默更新最新定位。
+2. **自動定位**：有 `hkb:location-consent = 'granted'`，或 Chromium 的 `navigator.permissions` 回報 `granted`／`prompt` 時，
+   掛載後直接呼叫 `getCurrentPosition`，不必再手動點「重新定位」；已被明確拒絕時不自動請求，改顯示提示。
+3. **成功**：寫入 `hkb:location-consent = 'granted'` 與 `hkb:last-location`。
+4. **拒絕（`error.code === 1`）**：清除 `hkb:location-consent`，錯誤訊息附上 iOS 操作提示
+   （Safari 網址列左側「網站設定 › 位置 › 允許」，或把本站「加入主畫面」後重新允許）。
+
 ---
 
 ## 7. PWA 設定
@@ -402,7 +424,7 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
   城巴沒有 service_type 與循環線拆分（同站同路線同方向但站序不同、`dest` 相同者仍可能混在同一張卡）。官方 `dest_tc` 尾端若有額外備註（例如「粉嶺站 (循環線) [不經山麗]」）仍視為不同目的地、可能與同終點的另一張卡重複顯示；此類情況只影響標示，不會合併成錯誤方向。
   幾何門檻（相距 ≥ 1/3 條路線）會讓部分循環線的中段重複站名不拆分，例如 26M 聯合醫院 seq11／16、和樂邨 seq13／15（相距 < 26÷3 站），卡片仍會混方向且無「往 X」標示（保守策略，避免標錯方向）。若九巴站點清單（`/stop`，約 1 MB）暫時 403，站序頁拿不到站名／座標就無法自動帶入同名月台，循環線方向標示會退回原狀（ETA 仍正常顯示）。
 - **路線卡「長途優先」排序需要額外抓路線站序**：展開站點時會先以到站時間顯示路線卡，再於背景為該站各路線抓取 `/route-stop`（同時最多 6 條；單條最多等 6 秒、整批上限 8 秒），補到剩餘距離後重排一次，因此路線順序可能在展開後約 1～2 秒內變動。繁忙站點（城巴實測一站可達 25 條路線）若在 8 秒內算不完，未完成的路線這輪先維持到站時間排序，下一次 30 秒輪詢或站序快取命中後會補上。同一路線站序在同一瀏覽工作階段只抓一次（記憶體快取，重新載入頁面後失效）。站序讀取失敗或逾時的路線這輪沒有 `progress`、退回以到站時間排序；有 `progress` 但缺座標（例如九巴 `/stop` 暫時 403）時改以剩餘站數排序（仍長途優先），ETA 仍正常顯示。
-- **新視窗可能被封鎖**：部分瀏覽器或「加入主畫面」的 PWA 環境會攔截 `window.open`，此時會自動退回同一視窗開啟站序頁，功能不變；站序頁的「返回」會優先回到原本的 App 分頁。
+- **iOS 定位授權**：Safari 沒有 Permissions API，`hkb:location-consent`／`hkb:last-location` 只存在本機瀏覽器；清除網站資料、換瀏覽器或換裝置後會重新詢問一次。若使用者在系統層拒絕定位，站內只能顯示提示與預設／上次位置，需到 Safari 網站設定或系統設定重新允許（見 6.10）。
 - **反轉方向的站點對應是「盡力而為」**：本車站（含月台）以站名、再用 200 公尺內座標在反向站序中找回；若另一方向不停靠附近位置，只顯示站序、不標示「本站」。九巴反轉後該站 ETA 只查單一月台（原方向仍會合併 `siblingIds` 月台）。
 - **收藏站點分組是「盡力而為」**：同名但相距 > 500 公尺的收藏會分開（實測九巴同名站點約 0.9% 屬於此類，最遠可達 50 公里）；判定方式是「與群組內任一站位距離 ≤ 500 公尺」，所以同名站點可能透過中間站位串成一組（A–B 400m、B–C 400m、A–C 800m 仍同組）。舊收藏沒有座標時只靠同名合併，無法判斷是否同一地點；站名尾端的代號／月台後綴只處理常見格式（`(YT123)`、`- 3號月台` 等），代號須含數字、其他寫法可能仍被視為不同站名。名稱相似度門檻（0.95）仍可能把同站不同座數／出口當成同一組（例如上水站 D1／D2 出口），反向也可能漏併命名差異大或順序顛倒的跨業者同站（例如「賽西湖大廈, 寶馬山道」與「寶馬山道, 賽西湖大廈外」）。展開群組會多打幾個站位的 ETA 請求：每個站位各自最多再多查 5 個月台，跨站位重複的站牌不會再去重（群組 k 個站位最多約 k×6 次站點請求），且沿用 `Promise.allSettled`，單一站失敗不影響其他站位。
 - **小巴反向 variant**：同一路線號碼可能有多個 `route_id`（不同班次描述），反轉時以起訖站互換＋相反 `route_seq` 評分挑選；單向行駛的 variant 會顯示「找不到另一方向」。
@@ -427,7 +449,7 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 
 - 站點層級的分享連結（`/stop/:operator/:id`）；路線站序已可用 `/route/...` 直接分享。
 - 收藏路線（目前只收藏站點）與到站提醒通知（Notification API）。
-- 讓新視窗站序頁的 `useStopEtas` 與 `useBusData` 共用同一套背景暫停／可見性邏輯（目前各自實作）。
+- 讓站序頁的 `useStopEtas` 與 `useBusData` 共用同一套背景暫停／可見性邏輯（目前各自實作）。
 - Search 頁站序帶入同名月台 `siblingIds`（可重用 `findSiblingStopIds()`），並把推算資料的 key 改為「站點 ID＋站序」，
   讓循環線同一站點 ID 出現兩列時（例如 26M 彩虹總站 seq1／26）各自使用正確方向的 ETA。
 - 把 `src/services/api.js` 內私有的 `normalizeStopName()` 改為共用 `src/utils/format.js` 版本
@@ -444,15 +466,15 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | --- | --- |
 | **多個 PWA 要能同時安裝在同一部裝置** | manifest `id` 改為固定值 `APP_ID = '/hk-bus-eta/'`（不再等於 `base`，避免改用自訂網域／根路徑部署時與同 origin 的其他 PWA 撞身分）；Workbox 執行期快取名稱加上 `hkbus-` 前綴（`CacheStorage` 以 origin 共用）；`index.html` 補 `application-name` meta。 |
 | **城巴有站點但沒有到站時間** | 根因：v2 逐路線 ETA 路徑順序寫反（`eta/CTB/{route}/{stopId}`），官方回 200 但 `data` 永遠是空陣列。已改為主要使用批次端點 `batch/stop-eta/CTB/{stopId}`（一次取全站所有路線），備援路徑修正為 `eta/CTB/{stopId}/{route}`。 |
-| **站序頁沒有返回方法（按 X 直接退出程式）** | 站序頁改為「返回」按鈕：優先用 `window.opener` 回到原本 App 分頁（同源自家頁面，保留原本站點展開狀態），否則 `history.back()`，最後回首頁；`openRouteSequence` 不再清除 opener。 |
+| **站序頁沒有返回方法（按 X 直接退出程式）** | 站序頁改為「返回」按鈕：站內已改為原視窗導覽，`history.state?.idx > 0`／`history.length > 1` 時 `navigate(-1)` 回上一頁（保留原本站點展開狀態），直接貼網址開啟則回首頁。 |
 | **路線站序也要能收藏站點** | 站序每一列加星號收藏按鈕（`useFavorites`，與主 App 共用 localStorage／storage 事件同步）。 |
 | **附近站點排序：收藏優先、小巴最後** | `Nearby` 以「GMB 一律排最後 → 已收藏優先 → 距離」排序，收藏狀態改變即時重排。 |
-| **參考 App 1933：站點內點路線要開新視窗看站序** | 新增 `RouteSequence` 頁（`/route/:operator/:route/:direction`，URL 可分享）與 `routeLinks.js`；`StopSection`／`BusCard` 點路線卡即開新視窗，新視窗顯示完整站序。 |
-| **從哪個車站開啟就標示哪一站，並顯示三班即將到站** | 由 URL 帶入 `stop`／`siblings`／`name`，新視窗自動高亮「本站」、捲到清單中央並展開最近三班 ETA（`EtaSlots` 共用三格 UI、30 秒自動更新）。 |
+| **參考 App 1933：站點內點路線要看完整站序** | 新增 `RouteSequence` 頁（`/route/:operator/:route/:direction`，URL 可分享）與 `routeLinks.js`；`StopSection`／`BusCard` 點路線卡即在原視窗開啟完整站序。 |
+| **從哪個車站開啟就標示哪一站，並顯示三班即將到站** | 由 URL 帶入 `stop`／`siblings`／`name`，站序頁自動高亮「本站」、捲到清單中央並展開最近三班 ETA（`EtaSlots` 共用三格 UI、30 秒自動更新）。 |
 | **其他車站也要可以點開** | 站序每一列都是按鈕，可逐一展開該站的最近三班車（一次展開一站，切站會取消舊請求與計時器）。 |
-| **要有反轉序列按鈕查反方向** | 新視窗「反轉方向」以 `getRouteIndex()` 找同路線反向（KMB 沿用 serviceType、GMB 以起訖站＋routeSeq 評分），`replace` 更新 URL 並重新抓站序；再以站名／座標找回反向站點自動展開。 |
+| **要有反轉序列按鈕查反方向** | 站序頁「反轉方向」以 `getRouteIndex()` 找同路線反向（KMB 沿用 serviceType、GMB 以起訖站＋routeSeq 評分），`replace` 更新 URL 並重新抓站序；再以站名／座標找回反向站點自動展開。 |
 | **自動同步 workflow 只 commit 票價** | `sync-data.yml` 改為同時 `git add public/data/`（站點索引）並移除 `[skip ci]`，資料更新會觸發 Pages 重新部署。 |
-| **效能：主程式一次載入所有頁面** | `App.jsx` 改為 `React.lazy` 分頁 chunk（主 chunk 約 330 kB → 272 kB raw／gzip 約 105 → 88 kB），新視窗頁獨立 chunk（約 15 kB）。 |
+| **效能：主程式一次載入所有頁面** | `App.jsx` 改為 `React.lazy` 分頁 chunk（主 chunk 約 330 kB → 272 kB raw／gzip 約 105 → 88 kB），站序頁獨立 chunk（約 18 kB）。 |
 | **效能：重複的網絡請求** | `withCache()`／`loadStaticData()` 加入進行中請求去重（同 key 併發只 fetch 一次，失敗可重試）；城巴 ETA 改批次端點；`useBusData` 修正切到背景仍輪詢的漏洞，回前景立即更新。 |
 | **AI 協作規範** | 新增 `AGENTS.md`（CodeGraph 優先探索、禁止大範圍 grep／讀檔）與 `codegraph init` 圖譜（`.codegraph/` 已列入 `.gitignore`）；刪除重複 JSDoc 並同步 README 快取 key。 |
 | 展開站點後名稱變成站點編號 | 展開時傳給 `useBusData` 的 refs 只帶 `operator/id/routes`，`StopSection` 拿不到 `nameTc`。改為傳完整站點物件（Nearby / Search / Favorites 三處），並還原被臨時加上的 `name_tc` 猜測欄位。 |
@@ -471,4 +493,6 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 | **同一站點同路線不同目的地混在同一張卡（例如 26M 順天總站：去程往觀塘、回程往彩虹）** | `groupEtaRows()` 的 key 由「路線\|方向」改為「路線\|方向\|目的地」（`destinationKey()` 忽略尾端「(循環線)」寫法差異），不同目的地分成不同卡片；`mergeEtaGroups()` 同步把目的地納入合併 key。九巴循環線（`dest_tc` 含「循環」）合併同名月台後，新增 `splitCircularPasses()` 以 ETA `stopSeq` 拆出去程／回程：只有「同一個 service_type、恰好兩個站序、`/route-stop` 驗證兩站位於路線前半／後半且相距 ≥ 1/3 條路線」才拆（兩個路線資料請求皆有記憶體快取），回程改以 `orig_tc` 標示；避免特別班次站序偏移與末段折返造成誤拆。`StopSection` 只在同站同路線有多個目的地時傳 `destinationVariant`，`BusCard`／`EtaSlots` 顯示彩色「往 X」chip 並以同色調為路線號碼框與 ETA 格上色；單一目的地維持原 UI。`routeEntryKey()`（`StopSection`／`Favorites`）與站序頁 `useStopEtas` 的群組選取同步加入了目的地與 `stopSeq` 比對，避免重複 key、選錯方向；循環線回程卡的站序頁連結仍用官方終點（`routeDestination`）。九巴改為「先收集原始班次 → 合併月台 → 拆分 → 合併重複目的地 → 最後才取三班」，同一站牌兩次經過不會被提前截斷；`findSiblingStopIds()` 讓站序頁只在同名站重複出現時才合併月台查詢，非來源站也能標示正確方向；色調順序改依目的地字串固定，30 秒更新不會換色。 |
 | **車站路線卡要「長途方向優先、終點站最後」** | 新增 `src/utils/routeOrder.js` 的 `sortRoutes()`：依「本站到路線終點」剩餘距離由長到短排序，終點站最後，同距離再依到站時間／路線號碼；`src/services/api.js` 新增 `attachRouteProgress()`（以 ETA 站序對應 `/route-stop` 站序、沿線 Haversine 加總，站序快取＋最多 6 條併發、單條 6 秒／整批 8 秒逾時），`useBusData` 先顯示 ETA、背景補上 `progress` 後重排一次，`StopSection` 改用 `sortRoutes()`，附近／搜尋／收藏頁共用；沒有到站時間（已過終班）的路線一律排最後，不影響其他排序規則。 |
 | **搜尋車號搜出站序後，往下滑就找不到「返回」與「推算各站到站時間」** | `RouteStopsPanel` 把「路線資訊＋返回按鈕」與「推算切換鈕」包成 sticky 工具列（`top-[var(--app-header-h)]`、`z-10`、半透明背景＋backdrop blur），貼在主殼 sticky Header 下緣，長站序滑到任何位置都能直接返回或開關推算；Header 高度由 `App.jsx` 以 `ResizeObserver` 量測後寫入 `--app-header-h`（`index.css` 有量測前的後備值），改 Header 版面不必同步改其他頁。`Search` 開啟站序面板時捲回頂端，返回清單時（`requestAnimationFrame` 後）還原原本的捲動位置。 |
+| **站內導覽應在原視窗切換** | `routeLinks.js` 的 `openRouteSequence()`（`window.open`）改為 `buildRouteSequencePath()`；`StopSection` 以 `useNavigate()` 原視窗切換站序頁，`BusCard` 提示改為「查看全線站序」，`App.jsx` 新增 `ScrollToTop`（PUSH／REPLACE 捲回頂部，POP 保留瀏覽器還原的捲動位置）。Google Maps 外部連結維持 `target="_blank" rel="noopener noreferrer"`。`RouteSequence` 移除 `window.opener`／`window.close()`，返回改以 `history.state.idx`／`history.length` 判斷。 |
+| **iOS 每次開啟都要重新點定位** | `useLocation` 新增 `hkb:location-consent`／`hkb:last-location` 記憶：成功定位即寫入，初始化先用快取座標渲染並背景更新；已授權或 Permissions API 回報 `granted` 時自動 `getCurrentPosition`；`PERMISSION_DENIED` 清除授權記憶並提示 iOS 的 Safari「網站設定 › 位置 › 允許」或「加入主畫面」（見 6.10）。 |
 

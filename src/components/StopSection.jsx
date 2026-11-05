@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ChevronDown, MapPin, Star, X } from 'lucide-react'
 import BusCard from './BusCard.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
@@ -6,7 +7,7 @@ import { EmptyState, ErrorState, RouteSkeleton } from './StateViews.jsx'
 import { TravelPlanChips } from './TravelPlan.jsx'
 import { favoriteKey } from '../hooks/useFavorites.js'
 import { formatDistance, stopPlatformCode } from '../utils/format.js'
-import { openRouteSequence } from '../utils/routeLinks.js'
+import { buildRouteSequencePath } from '../utils/routeLinks.js'
 import { sortRoutes } from '../utils/routeOrder.js'
 
 /** 路線卡片的識別 key（同一路線可能有不同方向／目的地／服務類型） */
@@ -16,7 +17,7 @@ function routeEntryKey(entry) {
 
 /**
  * 單一站點區塊：站名＋距離＋收藏，展開後列出各路線 ETA
- * 點路線卡片會用新視窗開啟完整站序（見 src/utils/routeLinks.js），不再行內展開。
+ * 點路線卡片會在原視窗切換到完整站序頁（見 src/utils/routeLinks.js），不再行內展開。
  *
  * 傳入 `stops`（同一車站的多個已收藏站位）時會以「群組」形式顯示：
  * 標題只顯示乾淨站名，月台代號以低調 chip 呈現，展開後可逐一移除個別站位。
@@ -52,6 +53,7 @@ export default function StopSection({
   planChips = null,
   planBaseLabel = null,
 }) {
+  const navigate = useNavigate()
   const [showAll, setShowAll] = useState(false)
   const sortedRoutes = useMemo(() => sortRoutes(group?.routes ?? []), [group?.routes])
   // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
@@ -102,8 +104,12 @@ export default function StopSection({
   }
 
   // 群組內同一條路線可能來自不同的月台／業者，點擊站序時用它的來源站
-  // （routeStops 由收藏頁以 entry 物件本身作 key，見 Favorites.jsx 的 mergeEtaResults）
-  const openSequence = (entry) => openRouteSequence(entry, routeStops?.get(entry) ?? stop)
+  // （routeStops 由收藏頁以 entry 物件本身作 key，見 Favorites.jsx 的 mergeEtaResults）。
+  // 站內導覽一律原視窗切換，不再開新視窗。
+  const openSequence = (entry) => {
+    const path = buildRouteSequencePath(entry, routeStops?.get(entry) ?? stop)
+    if (path) navigate(path)
+  }
 
   return (
     <section className="card overflow-hidden">

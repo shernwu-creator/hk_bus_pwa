@@ -1,7 +1,7 @@
 /**
- * 「新視窗站序頁」的 URL 組裝與開啟邏輯
+ * 「路線站序頁」的站內路徑組裝
  *
- * 路徑：`{BASE_URL}route/:operator/:route/:direction`
+ * 路徑：`/route/:operator/:route/:direction`
  * 查詢參數（全部都可省略，頁面會逐項還原）：
  * - `stop`      要高亮／自動展開的站點 ID
  * - `name`      站名（反轉方向後用站名在反向站序找回同一站）
@@ -10,27 +10,24 @@
  * - `routeId` / `routeSeq` 小巴站序查詢必要參數
  * - `orig` / `dest` 起點與終點站名（用於標題列，反轉時互換）
  *
- * 部署在子路徑（GitHub Pages：/hk_bus_pwa/）時必須以 import.meta.env.BASE_URL 為前綴，
- * 不可寫死 `/`。
+ * 站內導覽一律以 react-router 的 `navigate()`／`<Link>` 原視窗切換，因此這裡只組出
+ * 相對於 Router basename 的路徑；`BrowserRouter` 的 basename 已跟隨
+ * `import.meta.env.BASE_URL`，不需要（也不應該）在路徑前再拼 BASE_URL。
+ * 只有外部連結（例如 Google Maps）才使用 `target="_blank"`。
  */
-
-/** 保證 BASE_URL 以 `/` 結尾（dev 為 `/`，build 為 `/hk_bus_pwa/`） */
-const BASE_URL = import.meta.env.BASE_URL.endsWith('/')
-  ? import.meta.env.BASE_URL
-  : `${import.meta.env.BASE_URL}/`
 
 function encode(value) {
   return encodeURIComponent(String(value ?? ''))
 }
 
 /**
- * 組出新視窗站序頁的完整 URL。
+ * 組出路線站序頁的站內路徑（交給 `useNavigate()` 或 `<Link to>`）。
  *
  * @param {object} entry 路線 ETA 資料（operator/route/direction/serviceType/routeId/routeSeq/orig/destination）
  * @param {object} [stop] 目前站點（id/nameTc/nameEn/siblingIds）
  * @returns {string|null} 無法組出時回傳 null（缺少 operator／route／direction）
  */
-export function buildRouteSequenceUrl(entry, stop) {
+export function buildRouteSequencePath(entry, stop) {
   const {
     operator,
     route,
@@ -64,33 +61,5 @@ export function buildRouteSequenceUrl(entry, stop) {
   if (destinationQuery) query.push(`dest=${encode(destinationQuery)}`)
 
   const path = `route/${encode(operator)}/${encode(route)}/${encode(direction)}`
-  return `${BASE_URL}${path}${query.length > 0 ? `?${query.join('&')}` : ''}`
-}
-
-/**
- * 在新視窗開啟站序頁。
- *
- * - 優先 `window.open(url, '_blank')`；被瀏覽器／PWA 封鎖（回傳 null）時改用
- *   `window.location.assign(url)`，至少不讓點擊無反應。
- * - **保留 `win.opener`**（同源自家 App）：站序頁的「返回」按鈕需要它以
- *   `window.opener.focus()` 回到原分頁再關閉；站序頁只會 focus／close 原分頁，
- *   不會讀寫 opener 的 DOM。
- *
- * @param {object} entry 路線 ETA 資料
- * @param {object} [stop] 目前站點
- * @returns {Window|null} 新視窗（或 null 代表已改為在目前視窗開啟）
- */
-export function openRouteSequence(entry, stop) {
-  const url = buildRouteSequenceUrl(entry, stop)
-  if (!url) return null
-
-  const win = window.open(url, '_blank')
-  if (!win) {
-    // 彈出視窗被封鎖（部分 PWA／iOS 環境）：退回同視窗導覽
-    window.location.assign(url)
-    return null
-  }
-
-  // 注意：不要清掉 win.opener —— 站序頁的「返回」按鈕要靠它聚焦回原分頁。
-  return win
+  return `/${path}${query.length > 0 ? `?${query.join('&')}` : ''}`
 }

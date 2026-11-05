@@ -1,4 +1,4 @@
-import { ArrowUpRight, BusFront, ExternalLink } from 'lucide-react'
+import { ArrowUpRight, BusFront, ChevronRight } from 'lucide-react'
 import EtaSlots from './EtaSlots.jsx'
 import OperatorBadge from './OperatorBadge.jsx'
 import { serviceTypeLabel } from '../utils/format.js'
@@ -39,7 +39,7 @@ const DESTINATION_TONES = [
  * 巴士路線／ETA 顯示卡片
  * 內容：業者標籤、路線號碼、方向、上車收費，以及並排的最近三班車倒數
  *
- * 傳入 onClick 時整張卡片可點擊，由父層決定行為（目前是在新視窗開啟全線站序）。
+ * 傳入 onClick 時整張卡片可點擊，由父層決定行為（目前是在原視窗切換到全線站序頁）。
  *
  * @param {object} props
  * @param {object} props.entry ETA 路線資料
@@ -117,8 +117,8 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
 
       {onClick && (
         <span className="mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
-          <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          在新視窗查看全線站序
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+          查看全線站序
         </span>
       )}
     </>
@@ -134,7 +134,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
         <button
           type="button"
           onClick={onClick}
-          aria-label={`${route} 往 ${destination || '目的地'}：在新視窗查看全線站序`}
+          aria-label={`${route} 往 ${destination || '目的地'}：查看全線站序`}
           className="block w-full text-left"
         >
           {body}
