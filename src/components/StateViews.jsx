@@ -8,7 +8,7 @@ export function RouteSkeleton({ rows = 3 }) {
       {Array.from({ length: rows }).map((_, index) => (
         <div
           key={index}
-          className="rounded-xl border border-slate-200/70 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900"
+          className="rounded-[18px] border border-white/70 bg-white/70 p-2.5 backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-800/60"
         >
           <div className="flex gap-2.5">
             <div className="skeleton h-12 w-16 shrink-0 rounded-xl" />

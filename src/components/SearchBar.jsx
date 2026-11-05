@@ -28,7 +28,7 @@ export default function SearchBar({ value, onChange, placeholder, label, onClear
         value={value}
         placeholder={placeholder ?? t('search.placeholder')}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-white/80 bg-white/90 py-3 pl-10 pr-10 text-sm text-slate-900 shadow-sm outline-none backdrop-blur-xl transition placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500 dark:focus:ring-sky-500/20 [&::-webkit-search-cancel-button]:hidden"
+        className="w-full rounded-[22px] border border-white/80 bg-white/90 py-3 pl-10 pr-10 text-sm text-slate-900 shadow-sm outline-none backdrop-blur-xl transition placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500 dark:focus:ring-sky-500/20 [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button

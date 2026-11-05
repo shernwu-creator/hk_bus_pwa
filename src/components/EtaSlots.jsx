@@ -11,20 +11,33 @@ import useLanguage from '../hooks/useLanguage.js'
  * @param {{minutes:number|null, time:string|null, remark:string}|null} props.eta
  * @param {boolean} [props.selectable] 是否可點擊（作為推算基準）
  * @param {boolean} [props.selected] 是否為目前的推算基準班次
+ * @param {boolean} [props.first] 是否為三班之中的第一班（第一班用「即將到站」高光樣式）
  * @param {() => void} [props.onSelect]
  * @param {string} [props.toneClass] 多目的地時的底色／外框色調（由呼叫端依目的地分組提供）
  */
-export function EtaSlot({ eta, selectable = false, selected = false, onSelect, toneClass = '' }) {
+export function EtaSlot({
+  eta,
+  selectable = false,
+  selected = false,
+  first = false,
+  onSelect,
+  toneClass = '',
+}) {
   const { t } = useLanguage()
   const minutes = eta?.minutes ?? null
   const isArriving = minutes != null && minutes <= 0
+  // 款式 B：≤3 分鐘或三班之中的首班用薄荷綠高光；其餘為柔和內嵌毛玻璃塊
+  const isUrgent = Boolean(eta) && minutes != null && (minutes <= 3 || first)
   const label = eta?.time
     ? t('eta.arrival', { time: formatClock(eta.time) })
     : t('eta.noService')
   const ringClass = selected
     ? 'bg-sky-50 ring-2 ring-sky-500 dark:bg-sky-500/15 dark:ring-sky-400'
-    : toneClass || 'bg-slate-50 ring-1 ring-slate-100 dark:bg-slate-800/60 dark:ring-slate-700/60'
-  const className = `block w-full rounded-xl px-1.5 py-1.5 text-center ring-inset transition ${ringClass}`
+    : isUrgent
+      ? 'border border-emerald-500/60 bg-emerald-500/15 font-black text-emerald-700 dark:text-emerald-300'
+      : toneClass ||
+        'bg-slate-50/80 shadow-sm ring-1 ring-inset ring-white/70 dark:bg-slate-800/60 dark:ring-slate-700/60'
+  const className = `block w-full rounded-[14px] px-1.5 py-1.5 text-center transition ${ringClass}`
 
   const body = (
     <>
@@ -32,15 +45,25 @@ export function EtaSlot({ eta, selectable = false, selected = false, onSelect, t
         {minutes == null ? (
           <span className="text-base font-semibold text-slate-400 dark:text-slate-500">—</span>
         ) : isArriving ? (
-          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+          <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">
             {t('eta.arriving')}
           </span>
         ) : (
           <>
-            <span className="text-lg font-bold tabular-nums text-slate-900 dark:text-white">
+            <span
+              className={`text-lg tabular-nums ${
+                isUrgent
+                  ? 'font-black text-emerald-700 dark:text-emerald-300'
+                  : 'font-bold text-slate-900 dark:text-white'
+              }`}
+            >
               {minutes}
             </span>
-            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+            <span
+              className={`text-[10px] font-semibold ${
+                isUrgent ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
               {t('eta.min')}
             </span>
           </>
@@ -130,6 +153,7 @@ export default function EtaSlots({
           <EtaSlot
             key={index}
             eta={eta}
+            first={index === 0}
             selectable={selectable && Boolean(eta) && Boolean(onSelect)}
             selected={selectedIndex === index}
             onSelect={onSelect ? () => onSelect(index) : undefined}

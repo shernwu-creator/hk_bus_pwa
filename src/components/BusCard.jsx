@@ -49,8 +49,9 @@ const DESTINATION_TONES = [
  * @param {number|null} [props.destinationVariant]
  *        同一站點同一路線有多個目的地時，這個目的地分組的索引（0 起）；
  *        傳 null／不傳代表只有單一目的地，維持原本簡潔的 UI。
+ * @param {boolean} [props.featured] 聯營／焦點路線：路線號碼框使用藍紫漸層
  */
-export default function BusCard({ entry, onClick, destinationVariant = null }) {
+export default function BusCard({ entry, onClick, destinationVariant = null, featured = false }) {
   const { lang, t, pickLang } = useLanguage()
   if (!entry) return null
   const { route, operator, destination, destinationEn, fare, serviceType, etas = [] } = entry
@@ -65,11 +66,19 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
     <>
       <span className="flex items-start gap-2.5">
         <span
-          className={`flex w-16 shrink-0 flex-col items-center rounded-xl px-1 py-1.5 ${
-            tone ? tone.badge : 'bg-slate-100/80 dark:bg-slate-800/80'
+          className={`flex w-16 shrink-0 flex-col items-center rounded-[14px] px-1 py-1.5 ${
+            featured
+              ? 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-sm'
+              : tone
+                ? tone.badge
+                : 'bg-white/80 shadow-sm ring-1 ring-inset ring-white/70 dark:bg-slate-800/70 dark:ring-slate-700/70'
           }`}
         >
-          <span className="whitespace-nowrap text-xl font-extrabold leading-none tracking-tight text-slate-900 dark:text-white">
+          <span
+            className={`whitespace-nowrap text-xl font-extrabold leading-none tracking-tight ${
+              featured ? 'text-white' : 'text-slate-900 dark:text-white'
+            }`}
+          >
             {route}
           </span>
           <OperatorBadge operator={operator} className="mt-1" />
@@ -130,8 +139,8 @@ export default function BusCard({ entry, onClick, destinationVariant = null }) {
 
   return (
     <article
-      className={`animate-fade-in rounded-xl border border-slate-200/80 bg-white p-2.5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900 ${
-        onClick ? 'hover:border-slate-300 dark:hover:border-slate-700' : ''
+      className={`animate-fade-in rounded-[18px] border border-white/70 bg-white/70 p-2.5 shadow-[0_6px_20px_rgb(15,23,42,0.05)] backdrop-blur-xl transition dark:border-slate-700/60 dark:bg-slate-800/60 dark:shadow-[0_6px_20px_rgb(0,0,0,0.25)] ${
+        onClick ? 'hover:border-sky-200/80 dark:hover:border-sky-500/40' : ''
       }`}
     >
       {onClick ? (

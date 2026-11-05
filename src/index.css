@@ -36,9 +36,9 @@
 }
 
 @layer components {
-  /* 全站共用的卡片外觀 */
+  /* 全站共用的毛玻璃卡片（款式 B）：冰藍／午夜背景上的半透明玻璃 */
   .card {
-    @apply rounded-2xl border border-slate-200/80 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900;
+    @apply rounded-[22px] border border-white/80 bg-white/85 shadow-[0_8px_30px_rgb(15,23,42,0.06)] backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-800/80 dark:shadow-[0_8px_30px_rgb(0,0,0,0.35)];
   }
 
   .chip {

@@ -1,9 +1,10 @@
 import { OPERATORS } from '../services/api.js'
 
 const BADGE_STYLES = {
-  KMB: 'bg-kmb text-white shadow-sm',
-  CTB: 'bg-ctb text-slate-900 shadow-sm',
-  GMB: 'bg-emerald-500 text-white shadow-sm', // 新增綠色小巴樣式
+  // 款式 B：柔和色系圓角膠囊（不用品牌實色，降低視覺壓迫）
+  KMB: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
+  CTB: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300',
+  GMB: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300',
 }
 
 /**
@@ -14,7 +15,9 @@ export default function OperatorBadge({ operator, className = '' }) {
   if (!info) return null
   return (
     <span
-      className={`chip ${BADGE_STYLES[operator] ?? 'bg-slate-200 text-slate-700'} ${className}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold leading-4 ${
+        BADGE_STYLES[operator] ?? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+      } ${className}`}
       title={info.fullName}
     >
       {info.code}

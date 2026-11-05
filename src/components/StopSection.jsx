@@ -80,6 +80,20 @@ export default function StopSection({
   const stop = group?.stop ?? {}
   const stopName = pickLang(stop.nameTc, stop.nameEn) || stop.id || ''
   const visibleRoutes = showAll ? sortedRoutes : sortedRoutes.slice(0, 6)
+  // 同一路線號碼同時有兩個業者（聯營）時，路線號碼框改用藍紫漸層作焦點標示
+  const jointRoutes = useMemo(() => {
+    const operatorsByRoute = new Map()
+    for (const entry of sortedRoutes) {
+      const set = operatorsByRoute.get(entry.route) ?? new Set()
+      set.add(entry.operator)
+      operatorsByRoute.set(entry.route, set)
+    }
+    return new Set(
+      [...operatorsByRoute.entries()]
+        .filter(([, operators]) => operators.size > 1)
+        .map(([route]) => route),
+    )
+  }, [sortedRoutes])
   // 循環線同一站名可能出現兩次（站序不同），DOM id 帶上 seq 才不會重複
   const bodyId = `stop-body-${stop.operator}-${stop.id}-${seq ?? ''}`
 
@@ -195,7 +209,7 @@ export default function StopSection({
           type="button"
           onClick={handleToggle}
           aria-label={expanded ? t('stop.collapse') : t('stop.expand')}
-          className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <ChevronDown
             className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -205,7 +219,7 @@ export default function StopSection({
       </div>
 
       {expanded && (
-        <div id={bodyId} className="space-y-2 border-t border-slate-100 px-3 py-2.5 dark:border-slate-800">
+        <div id={bodyId} className="space-y-2 border-t border-white/60 px-3 py-2.5 dark:border-slate-700/60">
           {multiStop && onRemoveStop && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
               <span className="text-[10px] text-slate-400 dark:text-slate-500">
@@ -268,6 +282,7 @@ export default function StopSection({
                     destinationVariant={
                       destinationKeys.length > 1 && variantIndex >= 0 ? variantIndex : null
                     }
+                    featured={jointRoutes.has(entry.route)}
                     onClick={() => openSequence(entry)}
                   />
                 )

@@ -449,6 +449,21 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
   路線卡、站序頁標題與 ETA「往 X」標籤都會跟隨語言。
 - **尚未翻譯**：服務層產生的動態錯誤訊息（例如網絡錯誤）仍是繁體中文，切換語言不會改寫已產生的錯誤字串（見第 8 節）。
 
+### 6.12 視覺規範：款式 B 毛玻璃（Glassmorphism Modern）
+
+- **共用卡片**：`index.css` 的 `.card` 為 `rounded-[22px] border border-white/80 bg-white/85 backdrop-blur-xl`
+  ＋柔和陰影（深色 `dark:border-slate-700/70 dark:bg-slate-800/80`），所有頁面卡片（附近、搜尋、收藏、站序面板、
+  路線卡容器）共用；不要在元件內另寫一套白底卡片外觀。
+- **業者膠囊**：`OperatorBadge` 為 `rounded-full px-2.5 py-0.5 text-[11px] font-extrabold`：
+  九巴玫瑰紅（`bg-rose-100 text-rose-700`）、城巴琥珀（`bg-amber-100 text-amber-800`）、
+  小巴薄荷綠（`bg-emerald-100 text-emerald-800`），深色模式用半透明同色底（見 `BADGE_STYLES`）。
+- **路線卡**：`BusCard` 的路線號碼框為 `rounded-[14px]` 徽章；聯營／焦點路線（同一站同路線號碼由多於一個業者
+  提供）使用 `bg-gradient-to-r from-sky-500 to-indigo-500` 藍紫漸層（`StopSection` 以 `featured` 傳入）。
+- **即時倒數**：`EtaSlots` 每格為 `rounded-[14px]` 膠囊；≤ 3 分鐘或三班中的首班使用薄荷綠高光
+  （`border-emerald-500/60 bg-emerald-500/15 font-black`），其餘為柔和內嵌毛玻璃塊。
+- **站點卡互動**：`StopSection` 的展開／收合鈕改為 28px 圓形玻璃按鈕（`h-7 w-7 rounded-full`）。
+- Header／BottomNav／置頂地圖沿用毛玻璃膠囊；頁面背景是冰藍（日）／午夜藍紫（夜）漸層＋環境光暈。
+
 ---
 
 ## 7. PWA 設定
@@ -559,4 +574,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **首頁地圖要置頂，往下滑自動縮小** | `Nearby` 以 `sticky` 容器把地圖貼在 Header 下方常駐（`top: calc(var(--app-header-h) + 0.5rem)`）；`StopMap` 新增 `collapsed`／`onToggleCollapse`，高度 210px↔138px（約 1/3）配 `transition-[height] duration-300 ease-out`，並以 `transitionend`＋保險計時器觸發 `invalidateSize()`。scroll 門檻：`>36` 收起、`<=12` 展開；手動「展開全圖」後要再下滑 >120px 才重新收起。Google Maps 按鈕改為右上常駐毛玻璃膠囊，地圖底部的定位資訊濃縮成單行毛玻璃膠囊（綠點、狀態、重新定位／更新／展開全圖）。 |
 | **搜尋／站序頁要有全線軌跡地圖** | `StopMap` 新增 route mode（`routeStops`／`focusedStopId`／`onClearFocus`）：`L.polyline`（#0ea5e9、weight 4）、起點綠終點琥珀、未聚焦時 `fitBounds` 全線、聚焦時 `flyTo` 17 並顯示站名、Google Maps 連結跟隨聚焦站、左上「◎ 顯示全線軌跡」清除聚焦（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 `React.lazy` 置頂 sticky 顯示地圖；新增 `useMapCollapse` 統一捲動收起（Search 監聽 window、站序頁監聽清單 `onScroll`），`RouteStopsPanel` 以 `topOffset` 把返回列貼在地圖下緣。 |
 | **收藏頁要分成站點與路線雙分頁** | `useFavorites` 擴充為站點（沿用 `hkb:favorites:v1`）＋路線（新 key `hkb:favorite-routes:v1`，舊資料逐筆正規化、不覆寫舊 key）兩組 API（`favoriteStops`／`favoriteRoutes`、`isFavoriteStop`／`toggleFavoriteStop`、`isFavoriteRoute`／`toggleFavoriteRoute`，舊名稱保留）。`Search` 搜尋結果卡與 `RouteSequence` 頂部控制列加入星號收藏。`Favorites` 改為款式 B 毛玻璃分段切換器；收藏路線卡以 `getRouteStops`＋目前 GPS 找最近候車站，用 `useBusData` 顯示最近三班車，並可原視窗進入全線站序頁。 |
+| **全站視覺統一為款式 B 毛玻璃** | `.card` 改為 `rounded-[22px] border-white/80 bg-white/85 backdrop-blur-xl`＋柔和陰影（深色 slate）；`OperatorBadge` 改玫瑰／琥珀／薄荷圓角膠囊；`BusCard` 路線號碼框 `rounded-[14px]`（聯營／焦點路線用藍紫漸層）；`EtaSlots` 改 14px 膠囊，≤3 分鐘或首班用薄荷綠高光、其餘柔和內嵌玻璃塊；`StopSection` 展開鈕改 28px 圓形玻璃按鈕。 |
 

@@ -68,7 +68,7 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, classNam
 
   return (
     <div
-      className={`animate-fade-in rounded-xl px-2.5 py-2 ring-1 ring-inset ${tone} ${className}`}
+      className={`animate-fade-in rounded-[18px] px-2.5 py-2 shadow-sm ring-1 ring-inset backdrop-blur-xl ${tone} ${className}`}
     >
       <p className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold leading-4">
         {hasRealtime ? (

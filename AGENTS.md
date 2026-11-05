@@ -126,6 +126,9 @@ src/
 - 樣式一律 Tailwind utility class，共用外觀用 `index.css` 的 `.card`、`.chip`、`.skeleton`。
 - 顏色需同時支援 `dark:`；不要新增全域 CSS 除非必要。
 - 視覺為「款式 B」：毛玻璃膠囊 Header／懸浮島 Dock、藍紫漸層選中態；沿用現有 Tailwind class，不要改回全寬實色導覽列。
+- 款式 B 元件 token：`.card` 為 22px 圓角玻璃卡；`OperatorBadge` 用玫瑰／琥珀／薄荷圓角膠囊；
+  `BusCard` 路線號碼框 14px（聯營路線用藍紫漸層 `featured`）；`EtaSlots` 14px 膠囊（≤3 分鐘或首班薄荷綠高光）；
+  `StopSection` 展開鈕為 28px 圓形玻璃按鈕。改樣式時沿用這些 token，不要在元件內另寫一套卡片外觀。
 - 元件保持「呈現」與「資料抓取」分離：抓資料放 hook 或 page，純呈現放 components。
 - 不要新增依賴，除非能明確說明 bundle／維護成本；優先使用現有 `lucide-react` 圖示。
 - 所有非同步資料載入要有 loading／error／empty 狀態（`StateViews.jsx`）。
