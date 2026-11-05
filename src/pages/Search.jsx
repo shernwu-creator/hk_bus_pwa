@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Hash, MapPin } from 'lucide-react'
+import { Hash, MapPin, Star } from 'lucide-react'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import RouteStopsPanel from '../components/RouteStopsPanel.jsx'
 import SearchBar from '../components/SearchBar.jsx'
@@ -33,7 +33,7 @@ function matchesQuery(row, keyword) {
  * 搜尋頁：路線號碼 → 選方向 → 站序清單 → 展開查看該站的到站時間
  */
 export default function Search() {
-  const { favorites, toggleFavorite } = useFavorites()
+  const { favorites, toggleFavorite, isFavoriteRoute, toggleFavoriteRoute } = useFavorites()
   const { t, pickLang } = useLanguage()
   const [query, setQuery] = useState('')
   const [routeIndex, setRouteIndex] = useState(null)
@@ -292,12 +292,15 @@ export default function Search() {
             {t('search.found', { n: results.length })}
           </p>
           <ul className="space-y-2">
-            {results.map((row) => (
+            {results.map((row) => {
+              const routeFavorite = isFavoriteRoute(row)
+              return (
               <li key={routeKey(row)}>
+                <div className="card flex w-full items-center gap-1 p-2.5 transition hover:border-slate-300 dark:hover:border-slate-700">
                 <button
                   type="button"
                   onClick={() => chooseRoute(row)}
-                  className="card flex w-full items-center gap-2.5 p-2.5 text-left transition hover:border-slate-300 dark:hover:border-slate-700"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
                 >
                   <span className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-slate-100/80 px-1 py-1.5 dark:bg-slate-800/80">
                     <span className="whitespace-nowrap text-lg font-extrabold leading-none text-slate-900 dark:text-white">
@@ -320,8 +323,27 @@ export default function Search() {
                     </span>
                   </span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => toggleFavoriteRoute(row)}
+                  aria-label={
+                    routeFavorite ? t('route.unfavoriteRoute') : t('route.favoriteRoute')
+                  }
+                  aria-pressed={routeFavorite}
+                  title={routeFavorite ? t('route.unfavoriteRoute') : t('route.favoriteRoute')}
+                  className="shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-amber-500/10"
+                >
+                  <Star
+                    className={`h-4 w-4 ${
+                      routeFavorite ? 'fill-amber-400 text-amber-400' : ''
+                    }`}
+                    aria-hidden="true"
+                  />
+                </button>
+                </div>
               </li>
-            ))}
+              )
+            })}
           </ul>
         </>
       )}

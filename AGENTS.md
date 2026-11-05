@@ -103,6 +103,11 @@ src/
   左上「顯示全線軌跡」與 Leaflet 縮放鈕不可同時出現（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 lazy 載入
   `StopMap` 並置頂顯示；捲動收起一律用 `src/hooks/useMapCollapse.js`（window 或容器 `onScroll`），
   不要各自複製門檻邏輯。route mode 沒有定位資訊，不要顯示 Nearby 的定位膠囊。
+- **收藏雙分頁**：`useFavorites` 提供 `favoriteStops`／`favoriteRoutes`、`isFavoriteStop`／`toggleFavoriteStop`、
+  `isFavoriteRoute`／`toggleFavoriteRoute`；舊名稱 `favorites`／`isFavorite`／`toggleFavorite`／`clearFavorites`
+  仍對應站點收藏（向下相容）。站點存 `hkb:favorites:v1`、路線存獨立的 `hkb:favorite-routes:v1`
+  （不可把舊 key 改成物件或清空）。`Favorites` 以毛玻璃分段切換兩個分頁；路線卡用 `getRouteStops()`
+  ＋目前座標找最近候車站，再以 `useBusData()` 取最近三班車，並用 `buildRouteSequencePath()` 原視窗開站序頁。
 - **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
   「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
   展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。
@@ -171,7 +176,8 @@ npm run lint && npm run build
 規則：修改 `localStorage` 相關邏輯（如收藏、主題）時，必須相容舊有已儲存的資料格式。
 
 - 現有 key（改資料格式時**不可直接換 key 或覆寫舊資料**）：
-  - 收藏：`hkb:favorites:v1`（`src/hooks/useFavorites.js`）
+  - 收藏站點：`hkb:favorites:v1`（`src/hooks/useFavorites.js`）
+  - 收藏路線：`hkb:favorite-routes:v1`（`src/hooks/useFavorites.js`）
   - 主題：`hkb:theme`（`src/hooks/useTheme.js`，只接受 `'dark'`／`'light'`）
 - 舊資料可能缺欄位（例如沒有 `savedAt`、`routes`、`siblingIds`）：讀取時補預設值或逐筆過濾，不可因一筆壞資料就清空全部收藏。
 - 解析失敗（JSON 壞掉、不是陣列、值不在允許範圍）要退回預設值繼續運作，不要 `throw`。

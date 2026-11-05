@@ -425,7 +425,7 @@ export default function RouteSequence() {
   const [stopsReloadToken, setStopsReloadToken] = useState(0)
   const [reverseStatus, setReverseStatus] = useState('idle')
   const [reverseError, setReverseError] = useState(null)
-  const { favorites, toggleFavorite } = useFavorites()
+  const { favorites, toggleFavorite, isFavoriteRoute, toggleFavoriteRoute } = useFavorites()
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
   // 展開狀態改由元件 state 管理，可同時展開多站；URL 的 stop 只作為「來源站」
   // （高亮＋本站 chip＋分享用）與重新載入時的初始展開依據，不再限制同時展開的站數。
@@ -631,6 +631,47 @@ export default function RouteSequence() {
     pickLang(firstStop?.nameTc, firstStop?.nameEn) || origParam || ''
   const headerDest =
     pickLang(lastStop?.nameTc, lastStop?.nameEn) || destParam || ''
+
+  // 收藏路線用：以目前方向／服務類型作唯一鍵，並附上來源站（若有）方便下次直接展開
+  const favoriteRouteEntry = useMemo(
+    () => ({
+      operator,
+      route,
+      direction: directionValue,
+      serviceType,
+      routeId: routeId || null,
+      routeSeq: routeSeq || null,
+      orig: firstStop?.nameTc || origParam || '',
+      origEn: firstStop?.nameEn || '',
+      destination: lastStop?.nameTc || destParam || '',
+      destinationEn: lastStop?.nameEn || '',
+      stop: activeStop
+        ? {
+            id: activeStop.id,
+            nameTc: activeStop.nameTc ?? '',
+            nameEn: activeStop.nameEn ?? '',
+            lat: activeStop.lat ?? null,
+            lng: activeStop.lng ?? null,
+            siblingIds: activeSiblingIds,
+          }
+        : null,
+    }),
+    [
+      operator,
+      route,
+      directionValue,
+      serviceType,
+      routeId,
+      routeSeq,
+      firstStop,
+      lastStop,
+      origParam,
+      destParam,
+      activeStop,
+      activeSiblingIds,
+    ],
+  )
+  const isRouteFavorite = isFavoriteRoute(favoriteRouteEntry)
 
   useEffect(() => {
     if (!route) return undefined
@@ -849,19 +890,36 @@ export default function RouteSequence() {
               <RefreshCw className="h-3 w-3 shrink-0" aria-hidden="true" />
               {t('route.refreshNote')}
             </span>
-            <button
-              type="button"
-              onClick={handleReverse}
-              disabled={isReversing}
-              className="chip shrink-0 bg-sky-600 px-2.5 py-1 text-white shadow-sm transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:hover:bg-sky-400"
-            >
-              {isReversing ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
-              )}
-              {isReversing ? t('route.reversing') : t('route.reverse')}
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => toggleFavoriteRoute(favoriteRouteEntry)}
+                aria-label={
+                  isRouteFavorite ? t('route.unfavoriteRoute') : t('route.favoriteRoute')
+                }
+                aria-pressed={isRouteFavorite}
+                title={isRouteFavorite ? t('route.unfavoriteRoute') : t('route.favoriteRoute')}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-slate-400 shadow-sm ring-1 ring-inset ring-slate-200 transition hover:text-amber-500 dark:bg-slate-900/70 dark:text-slate-300 dark:ring-slate-700"
+              >
+                <Star
+                  className={`h-4 w-4 ${isRouteFavorite ? 'fill-amber-400 text-amber-400' : ''}`}
+                  aria-hidden="true"
+                />
+              </button>
+              <button
+                type="button"
+                onClick={handleReverse}
+                disabled={isReversing}
+                className="chip shrink-0 bg-sky-600 px-2.5 py-1 text-white shadow-sm transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:hover:bg-sky-400"
+              >
+                {isReversing ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {isReversing ? t('route.reversing') : t('route.reverse')}
+              </button>
+            </div>
           </div>
         </div>
       </header>

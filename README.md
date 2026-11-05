@@ -140,7 +140,7 @@ src/
 ├─ pages/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
 │  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 置頂全線軌跡地圖 → 站序 → ETA
-│  ├─ Favorites.jsx          # 已收藏站點（localStorage）：同名／相近站位分組顯示，可整組或單站取消收藏
+│  ├─ Favorites.jsx          # 收藏頁：毛玻璃雙分頁（收藏站點／收藏路線）；站點同名分組、路線顯示最近候車站 ETA
 │  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：置頂全線軌跡地圖、全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊在原視窗開啟站序）
@@ -157,7 +157,7 @@ src/
 │  ├─ useLocation.js         # Geolocation + 權限/錯誤狀態＋localStorage 授權記憶與座標快取
 │  ├─ useMapCollapse.js      # 置頂地圖捲動收起（window 或容器 onScroll、>36 收起／<=12 展開、手動展開後 >120 才再收起）
 │  ├─ useBusData.js          # ETA 抓取與 30 秒輪詢（Promise.allSettled；切到背景停止、回前景立即更新）＋路線卡排序用的剩餘距離
-│  ├─ useFavorites.js        # localStorage「hkb:favorites:v1」（含 routes / siblingIds）
+│  ├─ useFavorites.js        # localStorage「hkb:favorites:v1」（站點）＋「hkb:favorite-routes:v1」（路線）
 │  └─ useTheme.js            # 深色模式「hkb:theme」＋ html.dark
 ├─ services/
 │  ├─ api.js                 # 快取、站點、路線、票價、ETA（KMB / CTB / GMB）集中在這裡
@@ -303,9 +303,13 @@ scripts/
   原本的路線清單捲動位置。
 - 推算結果只是**估算**（路況、站距、燈位、上落客都會影響），UI 一律以「推算／約」呈現，不代表官方承諾。
 
-### 6.7 收藏站點分組
+### 6.7 收藏雙分頁：收藏站點分組與收藏路線
 
-收藏頁把「同一個車站的多個站位」合併成一張卡片，但 **localStorage 格式完全不變**：仍只寫入
+收藏頁頂部是款式 B 毛玻璃分段切換器（Segmented Control）：「◎ 收藏站點 (N)」與「★ 收藏路線 (M)」，
+選中的分頁套用 `rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 text-white font-extrabold shadow-sm`；
+兩個分頁各自有統計卡、清除按鈕與空狀態。
+
+**收藏站點**沿用舊格式：把「同一個車站的多個站位」合併成一張卡片，但 **localStorage 格式完全不變**：仍只寫入
 `hkb:favorites:v1`，每筆為 `operator`／`id`／`nameTc`／`nameEn`／`lat`／`lng`／`routes`／`siblingIds`／`savedAt`
 （見 `src/hooks/useFavorites.js`）。分組只發生在顯示層（`Favorites.jsx` 的 `groupFavorites()`），
 不會改寫或搬移已儲存的資料；舊收藏缺少 `lat`／`lng`、`routes`、`siblingIds` 時只靠站名分組，
@@ -333,6 +337,18 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - 群組內部分站位抓取失敗時顯示警示，全部失敗才顯示錯誤；展開狀態用 `Set` 管理，可同時展開多個群組。
 - 標題右側星星＝**移除整個群組**（群組內所有站位一起取消收藏）；展開後「此群組站位」區塊中每個 chip
   右側的 X＝**只移除該站位**，其餘站位保持展開。
+
+**收藏路線**（獨立 key `hkb:favorite-routes:v1`，不會影響站點收藏）：
+
+- 在 `Search` 的搜尋結果卡右側、以及 `RouteSequence` 頂部控制列的星號按鈕，可一鍵收藏／取消收藏該路線；
+  唯一鍵為 `operator:route:direction:serviceType`（同一路線去／回程、特別班次各自獨立）。
+- 每筆記錄 `operator`／`route`／`direction`／`serviceType`／`orig`／`origEn`／`destination`／`destinationEn`／
+  `routeId`／`routeSeq`／`stop`（可選來源站）／`savedAt`。舊版 App 只會讀寫站點 key，不會覆蓋路線收藏。
+- 收藏路線卡以 `getRouteStops()` 取得該路線全線站序，配合目前 GPS（`useLocation()`；使用預設位置時不計算）
+  找出**直線距離最近的候車站**，再用 `useBusData()` 取得該站最近三班車（30 秒輪詢、切背景暫停），
+  顯示成「⚡ 即將到站 · 30 分 · 44 分」與距離；沒有定位時提示開啟定位。
+- 卡片右下「查看全線站序」以 `buildRouteSequencePath()` 原視窗進入 `/route/...`（帶入最近候車站作高亮／展開），
+  同一個站序頁可看到全線軌跡地圖與各站 ETA。
 
 ### 6.8 附近站點互動地圖（Leaflet）
 
@@ -466,7 +482,7 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 - **路線卡「長途優先」排序需要額外抓路線站序**：展開站點時會先以到站時間顯示路線卡，再於背景為該站各路線抓取 `/route-stop`（同時最多 6 條；單條最多等 6 秒、整批上限 8 秒），補到剩餘距離後重排一次，因此路線順序可能在展開後約 1～2 秒內變動。繁忙站點（城巴實測一站可達 25 條路線）若在 8 秒內算不完，未完成的路線這輪先維持到站時間排序，下一次 30 秒輪詢或站序快取命中後會補上。同一路線站序在同一瀏覽工作階段只抓一次（記憶體快取，重新載入頁面後失效）。站序讀取失敗或逾時的路線這輪沒有 `progress`、退回以到站時間排序；有 `progress` 但缺座標（例如九巴 `/stop` 暫時 403）時改以剩餘站數排序（仍長途優先），ETA 仍正常顯示。
 - **iOS 定位授權**：Safari 沒有 Permissions API，`hkb:location-consent`／`hkb:last-location` 只存在本機瀏覽器；清除網站資料、換瀏覽器或換裝置後會重新詢問一次。若使用者在系統層拒絕定位，站內只能顯示提示與預設／上次位置，需到 Safari 網站設定或系統設定重新允許（見 6.10）。
 - **語言只涵蓋介面與站名／目的地**：`useLanguage` 的字典覆蓋所有靜態 UI 文案與 API 提供的 `nameTc`／`nameEn`、`dest_tc`／`dest_en`；服務層動態錯誤訊息（例如網絡失敗）仍以繁體中文顯示，切換語言不會翻譯已產生的錯誤字串（見 6.11）。
-- **`hkb:lang`**：只接受 `'zh'`／`'en'`，其他值退回 `'zh'`；與 `hkb:theme`、`hkb:favorites:v1` 一樣只存在本機。
+- **`hkb:lang`**：只接受 `'zh'`／`'en'`，其他值退回 `'zh'`；與 `hkb:theme`、`hkb:favorites:v1`、`hkb:favorite-routes:v1` 一樣只存在本機。
 - **站序地圖只畫有座標的站點**：`routeStops` 若缺少座標就不會出現在折線與圖釘中（例如小巴靜態索引與官方 `route-stop` 的站點 ID 未必完全對應；實測 1A 西貢方向 12 站只有 1 站命中），全線軌跡可能只剩少數點甚至無法顯示；站序與 ETA 仍正常。九巴站點清單（`/stop`）暫時 403 時同理。
 - **反轉方向的站點對應是「盡力而為」**：本車站（含月台）以站名、再用 200 公尺內座標在反向站序中找回；若另一方向不停靠附近位置，只顯示站序、不標示「本站」。九巴反轉後該站 ETA 只查單一月台（原方向仍會合併 `siblingIds` 月台）。
 - **收藏站點分組是「盡力而為」**：同名但相距 > 500 公尺的收藏會分開（實測九巴同名站點約 0.9% 屬於此類，最遠可達 50 公里）；判定方式是「與群組內任一站位距離 ≤ 500 公尺」，所以同名站點可能透過中間站位串成一組（A–B 400m、B–C 400m、A–C 800m 仍同組）。舊收藏沒有座標時只靠同名合併，無法判斷是否同一地點；站名尾端的代號／月台後綴只處理常見格式（`(YT123)`、`- 3號月台` 等），代號須含數字、其他寫法可能仍被視為不同站名。名稱相似度門檻（0.95）仍可能把同站不同座數／出口當成同一組（例如上水站 D1／D2 出口），反向也可能漏併命名差異大或順序顛倒的跨業者同站（例如「賽西湖大廈, 寶馬山道」與「寶馬山道, 賽西湖大廈外」）。展開群組會多打幾個站位的 ETA 請求：每個站位各自最多再多查 5 個月台，跨站位重複的站牌不會再去重（群組 k 個站位最多約 k×6 次站點請求），且沿用 `Promise.allSettled`，單一站失敗不影響其他站位。
@@ -542,4 +558,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **改成款式 B 毛玻璃設計** | 全站冰藍／午夜漸層背景＋`pointer-events-none` 光暈；頂部改毛玻璃膠囊 Header（`rounded-[22px]`、`bg-white/85 backdrop-blur-xl`），右側 `[中 | EN]` 分段切換與日夜按鈕；`BottomNav` 改底部懸浮島 Dock（`fixed bottom-3 inset-x-4 mx-auto max-w-sm rounded-full`、選中 Tab 藍紫漸層）。 |
 | **首頁地圖要置頂，往下滑自動縮小** | `Nearby` 以 `sticky` 容器把地圖貼在 Header 下方常駐（`top: calc(var(--app-header-h) + 0.5rem)`）；`StopMap` 新增 `collapsed`／`onToggleCollapse`，高度 210px↔138px（約 1/3）配 `transition-[height] duration-300 ease-out`，並以 `transitionend`＋保險計時器觸發 `invalidateSize()`。scroll 門檻：`>36` 收起、`<=12` 展開；手動「展開全圖」後要再下滑 >120px 才重新收起。Google Maps 按鈕改為右上常駐毛玻璃膠囊，地圖底部的定位資訊濃縮成單行毛玻璃膠囊（綠點、狀態、重新定位／更新／展開全圖）。 |
 | **搜尋／站序頁要有全線軌跡地圖** | `StopMap` 新增 route mode（`routeStops`／`focusedStopId`／`onClearFocus`）：`L.polyline`（#0ea5e9、weight 4）、起點綠終點琥珀、未聚焦時 `fitBounds` 全線、聚焦時 `flyTo` 17 並顯示站名、Google Maps 連結跟隨聚焦站、左上「◎ 顯示全線軌跡」清除聚焦（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 `React.lazy` 置頂 sticky 顯示地圖；新增 `useMapCollapse` 統一捲動收起（Search 監聽 window、站序頁監聽清單 `onScroll`），`RouteStopsPanel` 以 `topOffset` 把返回列貼在地圖下緣。 |
+| **收藏頁要分成站點與路線雙分頁** | `useFavorites` 擴充為站點（沿用 `hkb:favorites:v1`）＋路線（新 key `hkb:favorite-routes:v1`，舊資料逐筆正規化、不覆寫舊 key）兩組 API（`favoriteStops`／`favoriteRoutes`、`isFavoriteStop`／`toggleFavoriteStop`、`isFavoriteRoute`／`toggleFavoriteRoute`，舊名稱保留）。`Search` 搜尋結果卡與 `RouteSequence` 頂部控制列加入星號收藏。`Favorites` 改為款式 B 毛玻璃分段切換器；收藏路線卡以 `getRouteStops`＋目前 GPS 找最近候車站，用 `useBusData` 顯示最近三班車，並可原視窗進入全線站序頁。 |
 

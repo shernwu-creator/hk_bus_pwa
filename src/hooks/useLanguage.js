@@ -125,6 +125,8 @@ const STRINGS = {
   'route.full': ['全線站序', 'Full route'],
   'route.refreshNote': ['全線站序 · 到站資料每 30 秒自動更新', 'Full route · arrivals refresh every 30 s'],
   'route.reverse': ['反轉方向', 'Reverse'],
+  'route.favoriteRoute': ['收藏此路線', 'Save this route'],
+  'route.unfavoriteRoute': ['取消收藏此路線', 'Remove this route from saved'],
   'route.reversing': ['尋找反向…', 'Finding reverse…'],
   'route.reverseNotFound': [
     '找不到 {route} 的另一方向資料，這條路線可能只有單方向行駛。',
@@ -196,6 +198,33 @@ const STRINGS = {
   'search.stopsError': ['無法取得站序資料', 'Unable to load route stops'],
 
   'saved.title': ['已收藏 {n} 個站點', '{n} saved stops'],
+  'saved.tabsAria': ['收藏分類', 'Saved categories'],
+  'saved.tabStops': ['◎ 收藏站點 ({n})', '◎ Saved stops ({n})'],
+  'saved.tabRoutes': ['★ 收藏路線 ({n})', '★ Saved routes ({n})'],
+  'saved.routesTitle': ['已收藏 {n} 條路線', '{n} saved routes'],
+  'saved.routesNote': [
+    '收藏路線只儲存在此裝置，開啟定位後會自動顯示最近候車站',
+    'Saved routes stay on this device; the nearest stop appears once location is enabled.',
+  ],
+  'saved.confirmRoutes': ['確定要清除全部收藏路線嗎？', 'Remove all saved routes?'],
+  'saved.routeEmptyTitle': ['尚未收藏路線', 'No saved routes yet'],
+  'saved.routeEmptyDesc': [
+    '在搜尋結果或站序頁點選星號，即可把常用路線加入收藏。',
+    'Tap the star on a search result or route page to save it.',
+  ],
+  'saved.goSearch': ['前往路線搜尋', 'Go to route search'],
+  'saved.routeNearest': ['最近候車站', 'Nearest stop'],
+  'saved.routeNoLocation': [
+    '開啟定位後會自動顯示最近的候車站與到站時間。',
+    'Enable location to see the nearest stop and live arrivals.',
+  ],
+  'saved.routeStopsFailed': ['無法取得路線站序', 'Unable to load route stops'],
+  'saved.routeNoStops': ['此路線暫無站序資料', 'No stop data for this route'],
+  'saved.routeNoCoords': [
+    '此路線的站點暫無座標，未能計算最近候車站',
+    'No coordinates for this route, so the nearest stop cannot be calculated',
+  ],
+  'saved.routeEtaFailed': ['無法取得到站時間', 'Unable to load arrivals'],
   'saved.grouped': ['（整合為 {n} 個車站）', ' ({n} stations)'],
   'saved.note': ['收藏只儲存在此裝置，不會同步到其他裝置', 'Saved only on this device; not synced.'],
   'saved.clear': ['清除', 'Clear'],
