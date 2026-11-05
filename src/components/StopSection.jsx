@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Star, X } from 'lucide-react'
 import BusCard from './BusCard.jsx'
@@ -28,8 +28,9 @@ function routeEntryKey(entry) {
  * @param {{stop:object, routes:Array, routeStops?:Map<object, object>, error:string|null, warning?:string|null}} props.group
  * @param {number|null} [props.distance] 距離（公尺）
  * @param {number|null} [props.seq] 站序（路線站序清單使用）
- * @param {boolean} props.expanded
+ * @param {boolean} props.isExpanded 展開狀態由父層控制（手風琴／多站展開由父層決定）
  * @param {() => void} props.onToggle
+ * @param {string} [props.scrollMtClass] 外層 `scroll-margin-top`（讓展開時 scrollIntoView 對齊置頂地圖下方）
  * @param {boolean} [props.isFavorite]
  * @param {() => void} [props.onToggleFavorite]
  * @param {boolean} [props.loading] ETA 載入中
@@ -44,8 +45,9 @@ export default function StopSection({
   group,
   distance = null,
   seq = null,
-  expanded,
+  isExpanded = false,
   onToggle,
+  scrollMtClass = 'scroll-mt-[calc(var(--app-header-h,3.5rem)+226px+var(--stop-scroll-extra,0px))]',
   isFavorite = false,
   onToggleFavorite,
   loading = false,
@@ -57,6 +59,8 @@ export default function StopSection({
 }) {
   const navigate = useNavigate()
   const { lang, t, pickLang } = useLanguage()
+  const sectionRef = useRef(null)
+  const scrollTimerRef = useRef(0)
   const [showAll, setShowAll] = useState(false)
   const sortedRoutes = useMemo(() => sortRoutes(group?.routes ?? []), [group?.routes])
   // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
@@ -113,8 +117,19 @@ export default function StopSection({
       : t('stop.unfavorite')
     : t('stop.favorite')
 
+  // 點擊展開時：等父層更新 isExpanded 後，把這一站平滑捲到置頂地圖下方
+  // （scroll-margin-top 由 scrollMtClass 預留 Header + 展開地圖 + 父層 sticky 工具列的高度）
   const handleToggle = () => {
+    const willExpand = !isExpanded
     onToggle?.()
+    if (willExpand) {
+      // 等置頂地圖的高度 transition（300ms）完成後再對齊；450ms 留出 React 提交與
+      // transition 緩衝，避免目標位置因版面變高而偏移（實測 320ms 會差 15px）
+      window.clearTimeout(scrollTimerRef.current)
+      scrollTimerRef.current = window.setTimeout(() => {
+        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 450)
+    }
   }
 
   const handleShowAll = () => {
@@ -130,12 +145,12 @@ export default function StopSection({
   }
 
   return (
-    <section className="card overflow-hidden">
+    <section ref={sectionRef} className={`card overflow-hidden ${scrollMtClass}`}>
       <div className="flex items-center gap-2 px-3 py-2.5">
         <button
           type="button"
           onClick={handleToggle}
-          aria-expanded={expanded}
+          aria-expanded={isExpanded}
           aria-controls={bodyId}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
@@ -206,17 +221,17 @@ export default function StopSection({
         <button
           type="button"
           onClick={handleToggle}
-          aria-label={expanded ? t('stop.collapse') : t('stop.expand')}
+          aria-label={isExpanded ? t('stop.collapse') : t('stop.expand')}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 dark:bg-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <ChevronDown
-            className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             aria-hidden="true"
           />
         </button>
       </div>
 
-      {expanded && (
+      {isExpanded && (
         <div id={bodyId} className="space-y-2 border-t border-white/60 px-3 py-2.5 dark:border-slate-700/60">
           {multiStop && onRemoveStop && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">

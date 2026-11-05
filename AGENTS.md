@@ -112,9 +112,11 @@ src/
 - **站序到站推算**：`src/utils/travelPlan.js` 以 Sequential Matching 逐站推算
   （`上一站到達 + 相鄰路段耗時`），實時 ETA 只在 sequential 容錯區間配對；連續兩個 live 站會用
   實際里程／時間差更新 `currentSpeedKmh` 作後續 fallback。不要改回「靜態 19 km/h 由基準站一次過加總」。
-- **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
-  「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
-  展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。
+- **站點展開行為**：附近／搜尋／收藏頁的站點卡可**同時展開多個**（用 Set 管理，避免版面跳動）；
+  **站序頁（`RouteSequence`）改為手風琴**：同一時間只展開一站（`expandedStopId`），初始預設來源站、
+  沒有來源站則第一站。展開時呼叫 `resetCollapse()` 並以 `scrollIntoView({ behavior: 'smooth', block: 'start' })`
+  對齊，`StopSection` 外層以 `scroll-margin-top` 預留 Header＋展開地圖（＋搜尋頁 sticky 工具列）高度；
+  貼合期間暫停地圖縮小約 1.6 秒，之後手勢照常。站序頁 URL 的 `stop` 只作來源站／分享用途。
 - **定位記憶**：`useLocation` 以 `hkb:location-consent`（只存 `'granted'`）與 `hkb:last-location`
   （`{ lat, lng, accuracy, updatedAt }`）記憶授權與座標，讀寫一律 `try / catch`；初始化先用快取座標渲染再背景更新，
   不要改回「每次都要使用者手動點定位」。被拒（`error.code === 1`）時清除授權記憶並保留 iOS 的 Safari 設定提示。

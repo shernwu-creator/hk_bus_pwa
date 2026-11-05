@@ -664,7 +664,8 @@ export default function Favorites() {
                   key={item.key}
                   group={item.etaGroup}
                   stops={item.members}
-                  expanded={item.expanded}
+                  isExpanded={item.expanded}
+                  scrollMtClass="scroll-mt-24"
                   onToggle={() => handleToggleGroup(item.key)}
                   isFavorite
                   onToggleFavorite={() => handleRemoveGroup(item)}

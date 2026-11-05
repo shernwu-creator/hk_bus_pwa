@@ -97,6 +97,12 @@ function directionLabel(direction, t) {
   return direction === 'inbound' ? t('direction.inbound') : t('direction.outbound')
 }
 
+/** 站序列 DOM id：scrollIntoView 對齊時使用（站名可能重複，帶 seq 才唯一） */
+function stopRowDomId(stop) {
+  const id = String(stop?.id ?? '').replace(/[^A-Za-z0-9_-]+/g, '-')
+  return `route-stop-${id}-${stop?.seq ?? ''}`
+}
+
 /**
  * 在路線索引中找出「同一路線的另一方向」。
  *
@@ -427,9 +433,9 @@ export default function RouteSequence() {
   const [reverseError, setReverseError] = useState(null)
   const { favorites, toggleFavorite, isFavoriteRoute, toggleFavoriteRoute } = useFavorites()
   const favoriteKeys = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites])
-  // 展開狀態改由元件 state 管理，可同時展開多站；URL 的 stop 只作為「來源站」
-  // （高亮＋本站 chip＋分享用）與重新載入時的初始展開依據，不再限制同時展開的站數。
-  const [expandedStopIds, setExpandedStopIds] = useState(() => new Set())
+  // 手風琴：同一時間只有一個站點展開（expandedStopId）。初始值為來源站，
+  // 沒有來源站時預設展開第一站；URL 的 stop 只作「來源站」高亮／分享與重新載入的依據。
+  const [expandedStopId, setExpandedStopId] = useState(null)
   // 「推算各站到站時間」模式：以某一站某一班車為基準，推算後續各站的車程與預計到達時間
   const [planEnabled, setPlanEnabled] = useState(false)
   const [planBaseStopId, setPlanBaseStopId] = useState(null)
@@ -475,16 +481,17 @@ export default function RouteSequence() {
         setStops(list)
         setStopsStatus('ready')
 
-        // 反轉方向／重新載入站序時，把展開狀態重設為新方向找回的來源站（找不到就空 Set）
+        // 反轉方向／重新載入站序時，優先展開新方向找回的來源站（收藏頁聚焦站點），
+        // 找不到就預設展開第一站。
         const { nameParam: currentName, highlightedIds: currentHighlightedIds } = urlParamsRef.current
         const matchedStop =
           list.find((stop) => currentHighlightedIds.has(stop.id)) ??
           findMatchingStop(list, { name: currentName })
-        setExpandedStopIds(new Set(matchedStop ? [matchedStop.id] : []))
+        setExpandedStopId(matchedStop?.id ?? list[0]?.id ?? null)
       } catch (error) {
         if (cancelled) return
         setStops([])
-        setExpandedStopIds(new Set())
+        setExpandedStopId(null)
         setStopsStatus('error')
         setStopsError(error?.message ?? t('route.loadError'))
       }
@@ -607,7 +614,7 @@ export default function RouteSequence() {
     const baseId = planBaseStop?.id
     if (baseId == null) return
     setPlanBaseStopId((current) => current ?? baseId)
-    setExpandedStopIds((prev) => (prev.has(baseId) ? prev : new Set(prev).add(baseId)))
+    setExpandedStopId((current) => current ?? baseId)
   }, [planBaseStop, planEnabled])
 
   // 站序載入後把來源站捲到清單中央（只改 scrollTop，避免 scrollIntoView 讓整頁跳動）
@@ -686,19 +693,25 @@ export default function RouteSequence() {
 
   const retryStops = useCallback(() => setStopsReloadToken((token) => token + 1), [])
 
-  // 點站點列：切換該站的展開狀態（可同時展開多站）。
-  // URL 的 stop／name 仍會 replace 更新（分享／重新整理用），但不影響目前已展開的站。
+  // 點站點列：手風琴式切換（同一時間只展開一站）。
+  // 展開時讓置頂地圖回到完整高度，並把該列平滑對齊到清單頂端（地圖下方），
+  // 之後使用者繼續往下滑，useMapCollapse 的縮小邏輯仍會照常觸發。
+  // URL 的 stop／name 仍會 replace 更新（分享／重新整理用）。
   const handleToggleStop = useCallback(
     (stop) => {
       // 點選任一站點時，置頂地圖立即聚焦該站（可再按「顯示全線軌跡」回到全線）
       setFocusedStopId(stop.id)
-      const isExpanded = expandedStopIds.has(stop.id)
-      setExpandedStopIds((prev) => {
-        const next = new Set(prev)
-        if (next.has(stop.id)) next.delete(stop.id)
-        else next.add(stop.id)
-        return next
-      })
+      const isExpanded = expandedStopId === stop.id
+      setExpandedStopId(isExpanded ? null : stop.id)
+
+      if (!isExpanded) {
+        resetCollapse()
+        window.requestAnimationFrame(() => {
+          document
+            .getElementById(stopRowDomId(stop))
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
 
       const next = new URLSearchParams(searchParams)
       if (!isExpanded) {
@@ -718,7 +731,7 @@ export default function RouteSequence() {
 
       navigate({ search: next.toString() ? `?${next.toString()}` : '' }, { replace: true })
     },
-    [expandedStopIds, navigate, searchParams],
+    [expandedStopId, navigate, resetCollapse, searchParams],
   )
 
   // 站序清單內部捲動 → 地圖縮小 1/3（忽略程式置中那次 scroll）
@@ -1009,7 +1022,7 @@ export default function RouteSequence() {
               className="card relative min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5"
             >
               {stops.map((stop) => {
-                const isExpanded = expandedStopIds.has(stop.id)
+                const isExpanded = expandedStopId === stop.id
                 const isSource = activeStopId === stop.id
                 const isFavorite = favoriteKeys.has(favoriteKey(stop))
                 // 同一站名在循環線出現兩次時（例如順天總站 seq8／seq18），
@@ -1025,7 +1038,12 @@ export default function RouteSequence() {
                 const isPlanBase =
                   planEnabled && planBaseStop != null && String(planBaseStop.id) === String(stop.id)
                 return (
-                  <li key={`${stop.id}-${stop.seq}`} ref={isSource ? sourceRef : null}>
+                  <li
+                    key={`${stop.id}-${stop.seq}`}
+                    id={stopRowDomId(stop)}
+                    ref={isSource ? sourceRef : null}
+                    className="scroll-mt-2"
+                  >
                     <div
                       className={`flex items-center gap-0.5 rounded-xl pr-1 transition ${
                         isExpanded

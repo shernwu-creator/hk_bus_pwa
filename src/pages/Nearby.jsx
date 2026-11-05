@@ -45,6 +45,8 @@ export default function Nearby() {
   // manualExpandRef 記錄使用者是否按過「展開全圖」，暫停自動收起直到再次大幅往下捲動。
   const [collapsed, setCollapsed] = useState(false)
   const manualExpandRef = useRef(false)
+  // 自動貼合平滑捲動期間暫停「滑動即收起」，貼合完成後恢復正常偵測
+  const suppressCollapseUntilRef = useRef(0)
   // 按下「展開全圖」當下的 scrollY：之後要再往下滑 >120px 才重新自動收起
   const manualExpandYRef = useRef(0)
   const stopCardRefs = useRef(new Map())
@@ -149,6 +151,7 @@ export default function Nearby() {
     let frame = 0
     const update = () => {
       frame = 0
+      if (Date.now() < suppressCollapseUntilRef.current) return
       const y = window.scrollY
       if (y <= 12) {
         manualExpandRef.current = false
@@ -189,11 +192,19 @@ export default function Nearby() {
     })
   }, [])
 
-  // 列表點擊站點：切換展開；若是「展開」就同步把地圖飛到該站
+  // 列表點擊站點：切換展開；若是「展開」就同步把地圖飛到該站、並讓置頂地圖回到完整高度，
+  // 這樣 StopSection 的 scroll-margin-top 才能把站點精準貼合在展開的地圖下方。
   const handleToggleStop = useCallback(
     (stop) => {
       const key = favoriteKey(stop)
-      if (!expandedKeys.has(key)) focusStop(stop)
+      const willExpand = !expandedKeys.has(key)
+      if (willExpand) {
+        focusStop(stop)
+        setCollapsed(false)
+        manualExpandRef.current = false
+        // 讓 StopSection 的 smooth scrollIntoView 完成前不要觸發地圖縮小
+        suppressCollapseUntilRef.current = Date.now() + 1600
+      }
       setExpandedKeys((prev) => {
         const next = new Set(prev)
         if (next.has(key)) next.delete(key)
@@ -289,7 +300,7 @@ export default function Nearby() {
                 <StopSection
                   group={group}
                   distance={stop.distance}
-                  expanded={isExpanded}
+                  isExpanded={isExpanded}
                   onToggle={() => handleToggleStop(stop)}
                   isFavorite={favoriteKeys.has(key)}
                   onToggleFavorite={toggleFavorite}

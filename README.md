@@ -267,9 +267,11 @@ scripts/
    - 若合併後仍混合兩個站序（幾何門檻不成立而未拆分時），面板只顯示與本站站序相符的班次，避免把反方向的車混進來；
    - `EtaSlots` 與站點卡片共用同一套三班車 UI；這個展開面板每 30 秒自動更新，也可手動刷新；
    - 站序載入後會把來源站捲到清單中央。
-5. **其他站點也可以點開**：任一列都是按鈕，點擊後展開該站的最近三班車；**可同時展開多站**，
-   打開下面的站不會收起上面的站（避免版面高度變化令畫面跳動），再點同一站才收合。
-   展開狀態記在 component state；URL 的 `stop` 只作「來源站」與分享用途，重新整理時只會展開該站。
+5. **站點列為手風琴**：同一時間只展開一個站點（`expandedStopId`），點擊任一列即切換到該站並收合上一站；
+   初始預設展開來源站（由收藏頁／站點卡帶入的 `stop`），沒有來源站時預設展開第一站。
+   展開時會呼叫 `resetCollapse()` 讓置頂全線軌跡地圖回到完整高度，並以
+   `scrollIntoView({ behavior: 'smooth', block: 'start' })` 把該列平滑捲到清單頂端（地圖下緣）；
+   貼合完成後繼續往下滑，仍會觸發地圖縮小。URL 的 `stop` 只作「來源站」與分享用途。
 6. **站點收藏**：每一列右側（摺疊箭頭左邊）都有星號，可即時收藏／取消收藏站點；收藏與主 App 共用
    `hkb:favorites:v1`，靠 `storage` 事件跨分頁同步（站序頁收藏後，主 App 的「收藏」頁立即出現）。
 7. **返回**：標題列左上角「← 返回」不再使用 `window.opener`／`window.close()`，改為：
@@ -393,6 +395,10 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
   高度改變後在 `transitionend` 與 320ms 保險計時器觸發 `map.invalidateSize()`，圖磚與中心點不會跑位。
 - **捲動門檻**：`Nearby` 以 passive scroll + `requestAnimationFrame` 防抖，`window.scrollY > 36` 收起地圖、
   `<= 12` 展開；地圖膠囊的「展開全圖 ▼」會暫時解除自動收起，要再往下滑 >120px 才重新收起。
+- **站點點擊自動貼合**：`StopSection` 展開時（`isExpanded` 由父層控制）會等置頂地圖高度 transition 完成後
+  再以 `scrollIntoView({ behavior: 'smooth', block: 'start' })` 對齊；外層 `scroll-margin-top` 為
+  `calc(var(--app-header-h) + 226px + var(--stop-scroll-extra, 0px))`（Header＋展開地圖；搜尋頁再加上
+  `RouteStopsPanel` 量測到的 sticky 返回列高度）。貼合期間約 1.6 秒暫停「滑動即縮小」，之後手勢照常運作。
 - **全線軌跡模式（route mode）**：`StopMap` 新增 `routeStops`／`focusedStopId`／`onClearFocus`。傳入路線站序後改以
   `L.polyline`（顏色 `#0ea5e9`、線寬 `4`）串起所有有座標的站點：起點綠、終點琥珀、沿途天藍圓點；
   未聚焦任何站點時以 `fitBounds(polyline.getBounds(), { padding: [24, 24] })` 顯示全線，聚焦單站時
@@ -595,4 +601,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **準備過渡至 Cloudflare Pages** | 移除 Tailwind 已無人使用的 `kmb`／`ctb` 品牌色與 `shadow-card`（改用原生 arbitrary shadow），新增 `public/_redirects`（`/* /index.html 200`）作 SPA fallback；建置後會複製到 `dist/_redirects`，與 GitHub Pages 的 `404.html` 並存。 |
 | **行動版搜尋鍵盤與首頁站名可讀性** | `SearchBar` 的 `<input>` 補上 `autoCapitalize="characters"`（保留 `type="search"`／`inputMode="search"`／`autoCorrect="off"`／`autoComplete="off"`／`enterKeyHint="search"`），行動裝置更容易喚起英數鍵盤；`StopSection` 移除站名前的 MapPin 圖示，站點標題由 `text-lg font-semibold` 升級為 `text-xl font-extrabold`（站序頁仍保留站序數字徽章）。 |
 | **後續到站推算要更貼近實際班次** | `travelPlan.js` 改為 **Sequential ETA Matching + Dynamic Speed**：逐站以「上一站到達 + 相鄰路段耗時」推算，實時 ETA 只在「上一站 + 最短 1 分鐘 ~ 上一站 + 相鄰耗時 + 10 分鐘」區間內配對；連續兩個 live 站以實際里程／時間差更新 `currentSpeedKmh`（限制 5–65 km/h），缺少 ETA 的站改用最新車速 fallback。`buildTravelPlan` 額外回傳 `speedKmh`／`dynamicSpeed`，banner 顯示目前車速；移除舊有 4～15 分鐘比例容錯與錨點累計邏輯。 |
+| **站點列表手風琴與自動貼合** | `RouteSequence` 改為單一 `expandedStopId`（預設來源站，沒有則第一站；點任一站只展開該站）；`StopSection` 全面改由 `isExpanded`/`onToggle` props 控制，展開時等 450ms（地圖高度 transition）後 `scrollIntoView({ block: 'start', behavior: 'smooth' })`，外層加上 `scroll-mt-[calc(var(--app-header-h)+226px+var(--stop-scroll-extra))]`；`Nearby`／`Search` 展開站點時重置地圖並暫停縮小 1.6 秒，`Favorites` 用 `scroll-mt-24`，貼合完成後往下滑仍會正常縮小。 |
 

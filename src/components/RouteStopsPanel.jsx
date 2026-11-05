@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Route as RouteIcon } from 'lucide-react'
 import OperatorBadge from './OperatorBadge.jsx'
 import StopSection from './StopSection.jsx'
@@ -47,6 +47,24 @@ export default function RouteStopsPanel({
 }) {
   const { t, pickLang } = useLanguage()
   const [planEnabled, setPlanEnabled] = useState(false)
+  const sectionRef = useRef(null)
+  const toolbarRef = useRef(null)
+
+  // 把 sticky 返回列高度寫進 CSS 變數：StopSection 展開時的 scroll-margin-top 需要
+  // 同時避開置頂地圖與這條工具列，才能精準貼合在地圖下方。
+  useEffect(() => {
+    const section = sectionRef.current
+    const toolbar = toolbarRef.current
+    if (!section || !toolbar) return undefined
+    const sync = () => {
+      section.style.setProperty('--stop-scroll-extra', `${toolbar.offsetHeight + 8}px`)
+    }
+    sync()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(sync)
+    observer.observe(toolbar)
+    return () => observer.disconnect()
+  }, [])
 
   // 各站已取得的實時 ETA：只涵蓋「已展開」的站點（搜尋頁以批次查詢，不額外發請求）
   const liveEtasByStopId = useMemo(() => {
@@ -109,12 +127,13 @@ export default function RouteStopsPanel({
         : t('route.planBaseNone')
 
   return (
-    <section className="space-y-2">
+    <section ref={sectionRef} className="space-y-2">
       {/* 返回列（路線資訊）與推算切換鈕固定在 Header 下方：站序很長時不管滑到哪裡，
           都能隨時返回路線清單或開關「推算各站到站時間」，與首頁 sticky Header 同一套邏輯。
           有置頂地圖時（topOffset）改貼在地圖下緣；否則以負 margin 抵銷 main 的 padding，
           讓背景色貼齊左右邊緣、內容從下面滑過。 */}
       <div
+        ref={toolbarRef}
         className={`sticky z-10 -mx-3 space-y-2 border-b border-slate-200/70 bg-slate-50/90 px-3 pb-2 pt-3 backdrop-blur-lg dark:border-slate-800/80 dark:bg-slate-950/85 ${
           topOffset ? '' : '-mt-3'
         }`}
@@ -196,7 +215,7 @@ export default function RouteStopsPanel({
                   key={`${stop.operator}-${stop.id}-${stop.seq ?? ''}`}
                   group={group}
                   seq={stop.seq}
-                  expanded={isExpanded}
+                  isExpanded={isExpanded}
                   onToggle={() => onToggleStop(stop.id)}
                   isFavorite={isFavorite(stop)}
                   onToggleFavorite={() => onToggleFavorite(stop)}

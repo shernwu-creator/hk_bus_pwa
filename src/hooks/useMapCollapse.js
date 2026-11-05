@@ -24,9 +24,13 @@ export default function useMapCollapse() {
   const manualExpandYRef = useRef(0)
   const lastYRef = useRef(0)
   const frameRef = useRef(0)
+  // 自動貼合（scrollIntoView smooth）期間暫停「滑動即收起」，避免地圖被自己捲走；
+  // 貼合完成後（約 1.2 秒）恢復正常手勢偵測。
+  const suppressUntilRef = useRef(0)
 
   const evaluate = useCallback((y) => {
     lastYRef.current = y
+    if (Date.now() < suppressUntilRef.current) return
     if (y <= EXPAND_AT) {
       manualExpandRef.current = false
       setCollapsed(false)
@@ -86,9 +90,14 @@ export default function useMapCollapse() {
     })
   }, [])
 
-  /** 切換路線／返回清單時重設回展開狀態 */
+  /**
+   * 強制回到展開狀態（切換路線／返回清單／點站點自動貼合時使用）。
+   * 同時短暫抑制「捲動即收起」，讓後續的 scrollIntoView 平滑捲動不會立刻把地圖縮小；
+   * 貼合完成後使用者再往下滑，縮小邏輯照常運作。
+   */
   const resetCollapse = useCallback(() => {
     manualExpandRef.current = false
+    suppressUntilRef.current = Date.now() + 1600
     setCollapsed(false)
   }, [])
 

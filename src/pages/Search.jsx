@@ -180,13 +180,16 @@ export default function Search() {
     window.requestAnimationFrame(() => window.scrollTo({ top: resultsScrollRef.current }))
   }, [resetCollapse])
 
-  // 點站點列：展開／收合 ETA，並把地圖聚焦到該站（地圖左上的「顯示全線軌跡」可清除）
+  // 點站點列：展開／收合 ETA、把地圖聚焦到該站；展開時讓置頂地圖回到完整高度，
+  // 配合 StopSection 的 scroll-margin-top 精準貼合在地圖（及 sticky 返回列）下方。
   const handleToggleStop = useCallback(
     (id) => {
+      const willExpand = !expandedIds.has(id)
+      if (willExpand) resetCollapse()
       setFocusedStopId(id)
       toggleStop(id)
     },
-    [toggleStop],
+    [expandedIds, resetCollapse, toggleStop],
   )
 
   // 點地圖上的站點圖釘：只聚焦（不展開），右上 Google Maps 連結會跟著指向該站
