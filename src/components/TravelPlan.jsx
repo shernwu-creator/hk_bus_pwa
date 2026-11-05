@@ -61,6 +61,10 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, classNam
   const baseName = pickLang(plan.baseStop.nameTc, plan.baseStop.nameEn) || plan.baseStop.id
   const busLabel = etaLabel ?? t('plan.etaLabel', { n: 1 })
   const noDownstream = plan.entries.length === 0
+  // buildTravelPlan 會在有連續兩站官方 ETA 時學到實際車速；尚未學到才顯示預設 19 km/h
+  const speedKmh = Number.isFinite(plan.speedKmh)
+    ? Math.round(plan.speedKmh)
+    : AVG_BUS_SPEED_KMH
   const tone =
     hasRealtime || baseLoading
       ? 'bg-sky-50 text-sky-800 ring-sky-100 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/20'
@@ -99,7 +103,7 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, classNam
                 <>
                   {t('plan.assumption', {
                     dwell: DWELL_SECONDS_PER_STOP,
-                    speed: AVG_BUS_SPEED_KMH,
+                    speed: speedKmh,
                     detour: ROAD_DETOUR_FACTOR,
                   })}
                   {plan.terminusMinutes != null &&

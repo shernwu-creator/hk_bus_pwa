@@ -4,18 +4,21 @@ import { distanceInMeters } from '../services/api.js'
  * 車程／預計到達時間推算（類似九巴 App 1933 的「後續各站到達時間」）
  *
  * 策略（由便宜到精確）：
- *   1. 幾何推算（通用、不額外發 API）：相鄰站點直線距離 × 道路繞行係數 ÷ 平均車速，
- *      每經過一站再加平均停靠時間，累加出「從基準站到第 N 站的車程分鐘數」。
- *   2. 實時 ETA 校準：頁面上已展開的站點會透過批次 ETA API 取得實時到站時間。
- *      以「晚於上一個錨點、且不晚於幾何預測 + 容許誤差」為候選，再取加權後最接近幾何預測的
- *      一班（偏早的誤差權重較低，因為幾何車速偏保守），推測為同一班車並直接採用官方實時時間
- *      （比純幾何準，也不用再發請求）。採用後以該站為新錨點，上遊的實際延誤會往下游傳遞。
+ *   1. 幾何推算（通用、不額外發 API）：相鄰站點道路里程 ÷ 目前車速 + 每站停靠時間，
+ *      以「上一站預計到達 + 相鄰路段耗時」逐站累加（不是一次過由基準站加總）。
+ *   2. 實時 ETA 校準（Sequential ETA Matching）：頁面上已展開的站點會取得實時到站時間。
+ *      以「上一站到達時間」為基準，同一班車到達下一站的合理區間為：
+ *        [上一站 + 最短行車時間, 上一站 + 相鄰路段預計耗時 + 10 分鐘寬鬆容錯]
+ *      落在區間內的官方 ETA 視為同一班車；再取加權後最接近預測的一班。
+ *   3. 動態車速（Dynamic Speed）：連續兩個成功配對的官方 ETA（允許中間站缺 ETA，
+ *      以累計道路里程計）可算出實際車速 `距離 ÷ (本次 ETA - 上次 ETA)`，
+ *      即時更新 `currentSpeedKmh`；之後缺少 ETA 的站改用最新車速做幾何 fallback。
  *
  * 所有數值都是「估算」：香港市區路況、站距、燈位差異都會影響實際到站時間，
  * UI 一律以「推算／約」呈現，不可當成官方承諾。
  */
 
-/** 香港市區巴士平均行駛速度（km/h）：市區走走停停，約 19 km/h */
+/** 香港市區巴士平均行駛速度（km/h）：市區走走停停，約 19 km/h；尚未學到動態車速時使用 */
 export const AVG_BUS_SPEED_KMH = 19
 
 /** 直線距離換算實際道路里程的繞行係數（市區道路多彎且需繞行） */
@@ -25,30 +28,27 @@ export const ROAD_DETOUR_FACTOR = 1.3
 export const DWELL_SECONDS_PER_STOP = 35
 
 /**
- * 實時 ETA 校準的容許誤差：以「上一錨點到此站的幾何車程」按比例放大，
- * 太近的站要求嚴格（避免誤配到前後另一班車），太遠的站放寬（幾何誤差本來就大）。
- * 公式：clamp(車程分鐘 × `LIVE_ETA_MATCH_RATIO`, MIN, MAX)
+ * Sequential ETA Matching 的寬鬆容錯（分鐘）：相鄰路段的幾何預測本身有誤差，
+ * 只要官方 ETA 落在「上一站 + 相鄰耗時 + 容錯」之內就視為同一班車。
  */
-export const LIVE_ETA_MATCH_RATIO = 0.35
-
-/** 實時 ETA 校準的最小容許誤差（分鐘） */
-export const LIVE_ETA_MATCH_MIN_MINUTES = 4
-
-/** 實時 ETA 校準的最大容許誤差（分鐘） */
-export const LIVE_ETA_MATCH_MAX_MINUTES = 15
+export const LIVE_ETA_HOP_TOLERANCE_MINUTES = 10
 
 /** 實時 ETA 超過這個時間沒有更新就不再採用（毫秒；約等於兩次 30 秒輪詢） */
 export const LIVE_ETA_MAX_AGE_MS = 90000
 
-/** 相鄰兩站之間「同一班車」最少需要的行駛時間（毫秒）：比錨點還早的班次不可能同一班車 */
+/** 相鄰兩站之間「同一班車」最少需要的行駛時間（毫秒）：比上一站還早的班次不可能同一班車 */
 const MIN_HOP_MS = 60000
 
 /**
- * 配對誤差的權重：幾何推算的 19 km/h 偏保守（通常會高估車程），
+ * 配對誤差的權重：幾何推算的預設 19 km/h 偏保守（通常會高估車程），
  * 因此「比預測早一點」比「比預測晚一點」更可能仍是同一班車，權重調低。
  * （避免在班距小的路線上，被幾何高估牽著配到下一班車。）
  */
 const EARLY_DEVIATION_WEIGHT = 0.5
+
+/** 動態車速的安全上下限（km/h）：避免實時 ETA 抖動造成離譜車速 */
+const DYNAMIC_SPEED_MIN_KMH = 5
+const DYNAMIC_SPEED_MAX_KMH = 65
 
 /** 相鄰站點缺少座標時的後備直線距離（公尺）：約為市區平均站距 */
 const FALLBACK_STRAIGHT_METERS = 450
@@ -90,42 +90,39 @@ function isLiveRecordFresh(record, now) {
 }
 
 /**
- * 在某一站的實時 ETA 中，找出最可能是「基準班次」的那一班。
+ * 在某一站的實時 ETA 中，找出最可能是「上一站那班車」的下一站到達時間。
  *
- * 條件（依序過濾）：
- *   1. 必須晚於錨點（上一個有官方時間的站）至少一分鐘——比錨點還早到的班次一定不是同一班車。
- *   2. 必須還沒過去。
- *   3. 不可晚於幾何預測 + 容許誤差（避免班次資料缺漏時抓到「下一班車」）。
- *   4. 符合條件者取「加權後最接近幾何預測」的一班；比預測早的誤差權重較低
- *      （幾何車速偏保守，容易高估車程）。
- *
- * 單純取「最接近幾何預測」在班距小於容許誤差時會配到下一班車
- * （實測：基準 +3 分、下一站官方 +5／+10／+15 分、幾何預測 +5 分時會誤抓 +10 分）；
- * 單純取「最早」則在上一班車還在前方路段時會配錯，因此改以上述加權規則。
+ * Sequential Matching：以 `previousArrival`（上一站實際／推算到達時間）為基準，
+ * 同一班車到達下一站的合理區間為：
+ *   - 最早：`previousArrival + MIN_HOP_MS`（不可能比上一站更早到）
+ *   - 最晚：`previousArrival + 相鄰路段預計耗時 + LIVE_ETA_HOP_TOLERANCE_MINUTES`
+ * 區間內取「加權後最接近 predictedArrival」的一班；比預測早的誤差權重較低
+ * （幾何車速偏保守，容易高估車程）。
  *
  * @param {{etas?:Array, updatedAt?:number}|undefined} record
- * @param {{anchorArrival:number, predictedArrival:number, deltaMinutes:number, now:number}} context
+ * @param {{previousArrival:number, predictedArrival:number, hopMinutes:number, now:number}} context
  * @returns {number|null} 實時到站時間（毫秒）
  */
-function pickLiveArrival(record, { anchorArrival, predictedArrival, deltaMinutes, now }) {
+function pickLiveArrival(record, { previousArrival, predictedArrival, hopMinutes, now }) {
   if (!isLiveRecordFresh(record, now) || !Array.isArray(record.etas)) return null
-  const tolerance =
-    Math.min(
-      LIVE_ETA_MATCH_MAX_MINUTES,
-      Math.max(LIVE_ETA_MATCH_MIN_MINUTES, deltaMinutes * LIVE_ETA_MATCH_RATIO),
-    ) * 60000
-  const earliest = anchorArrival + MIN_HOP_MS
-  const latest = predictedArrival + tolerance
+  if (!Number.isFinite(previousArrival) || !Number.isFinite(predictedArrival)) return null
+
+  const hopMs = Number.isFinite(hopMinutes)
+    ? Math.max(MIN_HOP_MS, hopMinutes * 60000)
+    : MIN_HOP_MS
+  const toleranceMs = LIVE_ETA_HOP_TOLERANCE_MINUTES * 60000
+  const earliest = previousArrival + MIN_HOP_MS
+  const latest = previousArrival + hopMs + toleranceMs
   let best = null
 
   for (const eta of record.etas) {
     const time = Date.parse(eta?.time ?? '')
     if (!Number.isFinite(time)) continue
-    // 比錨點還早（或幾乎同時）→ 一定是前方的另一班車
+    // 比上一站還早（或幾乎同時）→ 一定是前方的另一班車
     if (time < earliest) continue
     // 已過去的時間不可能再是「預計到達」
     if (time < now - 60000) continue
-    // 比幾何預測晚太多 → 較可能是下一班車，寧可沿用幾何推算
+    // 超出「上一站 + 相鄰耗時 + 容錯」→ 較可能是下一班車，寧可沿用幾何推算
     if (time > latest) continue
     const deviation = time - predictedArrival
     const cost = deviation >= 0 ? deviation : -deviation * EARLY_DEVIATION_WEIGHT
@@ -155,16 +152,17 @@ export function pickBaseEta(record, index = 0, now = Date.now()) {
 }
 
 /**
- * 以基準站的班次時間，推算後續各站的累計車程與預計到達時間。
+ * 以基準站的班次時間，逐站（相鄰站相對配對）推算後續各站的預計到達時間。
  *
- * 每一站的演算法：
- *   累計道路里程 = Σ(相鄰站直線距離 × 繞行係數)
- *   車程分鐘     = 累計里程 ÷ 平均車速 + 經過站數 × 停靠時間（四捨五入，最少 1 分）
- *   預計到達     = 基準班次到站時間 + 車程分鐘
- * 若該站有新鮮的實時 ETA 且能配對到同一班車，優先採用實時時間（source = 'live'）。
- *
- * 沒有基準班次時間（`baseTime` 非有限數字）時，只回傳車程分鐘，`arrivalMs` 為 null，
- * UI 會以「+X 分鐘車程」呈現。
+ * 核心迴圈（Sequential Matching）：
+ *   1. 相鄰路段耗時 = 該段道路里程 ÷ 目前車速（動態車速，未學到時用 AVG_BUS_SPEED_KMH）
+ *      + 每站停靠時間；`predictedArrival = previousArrival + 這段耗時`。
+ *   2. 該站有新鮮實時 ETA、且時間落在「上一站 + 最短行車 ~ 上一站 + 相鄰耗時 + 10 分鐘」
+ *      區間內時，視為同一班車並直接採用官方時間（`source = 'live'`）。
+ *   3. 連續兩個成功配對的 live 站（允許中間站缺 ETA，以累計里程計）可算出實際車速，
+ *      即時更新 `currentSpeedKmh`；之後缺少 ETA 的站用最新車速做幾何 fallback。
+ *   4. 沒有基準班次時間（`baseTime` 非有限數字）時，只回傳累計車程分鐘，`arrivalMs` 為 null，
+ *      UI 會以「+X 分鐘車程」呈現。
  *
  * @param {object} params
  * @param {Array<{id:string|number, lat?:number|null, lng?:number|null}>} [params.stops] 依官方站序排列的站點
@@ -181,6 +179,8 @@ export function pickBaseEta(record, index = 0, now = Date.now()) {
  *   byStopId: Map<string, object>,
  *   approximate: boolean,
  *   terminusMinutes: number|null,
+ *   speedKmh: number,
+ *   dynamicSpeed: boolean,
  * }}
  */
 export function buildTravelPlan({
@@ -204,63 +204,90 @@ export function buildTravelPlan({
       byStopId,
       approximate: false,
       terminusMinutes: null,
+      speedKmh: AVG_BUS_SPEED_KMH,
+      dynamicSpeed: false,
     }
   }
 
   const segments = buildSegments(stops)
   const approximate = segments.some((segment) => segment.fallback)
 
-  // 以起算站為原點的累計里程前綴和：prefix[k] = 起算站走到「起算站 + k 站」的估計道路里程
-  const prefix = [0]
-  for (let index = safeIndex; index < stops.length - 1; index += 1) {
-    prefix.push(prefix[prefix.length - 1] + segments[index].meters)
-  }
-  const metersBetween = (fromIndex, toIndex) =>
-    prefix[toIndex - safeIndex] - prefix[fromIndex - safeIndex]
-
-  // 錨點：最近一個「有官方實時時間」的站（沒有就用起算站）。
-  // 錨點之後的站以「錨點時間 + 幾何車程」推算，因此上遊的實際延誤會往下游傳遞，
-  // 不會出現「前面站誤點、後面站卻變回準時」的矛盾。
-  let anchorIndex = safeIndex
-  let anchorArrival = hasBaseTime ? baseTime : null
-  let previousMinutes = 0
+  // 目前採用的車速：預設 19 km/h，學到連續兩站的實際車速後即時更新
+  let currentSpeedKmh = AVG_BUS_SPEED_KMH
+  let dynamicSpeed = false
+  // 上一站到達時間（基準站時間或上一次配對／推算結果）
   let previousArrival = hasBaseTime ? baseTime : null
+  let previousMinutes = 0
+  // 沒有基準班次時間時，改用累計耗時換算車程分鐘
+  let accumulatedMs = 0
+  // 最近一次「官方 ETA」的到達時間，以及自那時起累計的道路里程（用來學動態車速）
+  let lastLiveArrival = hasBaseTime ? baseTime : null
+  let metersSinceLastLive = 0
   const entries = []
 
   for (let index = safeIndex + 1; index < stops.length; index += 1) {
-    const deltaMeters = metersBetween(anchorIndex, index)
-    const driveMinutes = (deltaMeters / 1000 / AVG_BUS_SPEED_KMH) * 60
-    const dwellMinutes = ((index - anchorIndex) * DWELL_SECONDS_PER_STOP) / 60
-    const deltaMinutes = Math.max(1, Math.round(driveMinutes + dwellMinutes))
+    const hopMeters = segments[index - 1]?.meters ?? FALLBACK_SEGMENT_METERS
+    const driveMinutes = (hopMeters / 1000 / currentSpeedKmh) * 60
+    const dwellMinutes = DWELL_SECONDS_PER_STOP / 60
+    const hopMinutes = driveMinutes + dwellMinutes
+    const hopMs = Math.max(MIN_HOP_MS, Math.round(hopMinutes * 60000))
 
-    let arrivalMs = anchorArrival != null ? anchorArrival + deltaMinutes * 60000 : null
+    // 核心：預測到達 = 上一站到達 + 相鄰路段耗時（不是由基準站一次過加幾何總和）
+    let arrivalMs = previousArrival != null ? previousArrival + hopMs : null
     let source = 'geometry'
-    let travelMinutes = deltaMinutes
+    let travelMinutes
 
-    if (hasBaseTime) {
-      // 優先策略：已有實時 ETA 且能配對到同一班車時，直接用官方的遞增時間差
-      const liveArrival = pickLiveArrival(liveEtas?.get(String(stops[index].id)), {
-        anchorArrival,
-        predictedArrival: arrivalMs,
-        deltaMinutes,
-        now,
-      })
+    if (hasBaseTime && previousArrival != null) {
+      metersSinceLastLive += hopMeters
+
+      const liveArrival = pickLiveArrival(
+        stops[index]?.id != null ? liveEtas?.get(String(stops[index].id)) : undefined,
+        {
+          previousArrival,
+          predictedArrival: arrivalMs,
+          hopMinutes,
+          now,
+        },
+      )
       if (liveArrival != null) {
         arrivalMs = liveArrival
         source = 'live'
       }
+
       // 後面的站不可早於前一站（實時資料抖動或四捨五入都可能造成非遞增）；
-      // 被夾回的時間是推算值，不可再標成官方資料
-      if (previousArrival != null && arrivalMs <= previousArrival) {
+      // 被夾回的時間是推算值，不可再標成官方資料。
+      if (arrivalMs <= previousArrival) {
         arrivalMs = previousArrival + 60000
         source = 'geometry'
       }
-      // 只有官方實時時間才移動錨點，避免幾何四捨五入誤差逐站累積
-      if (source === 'live') {
-        anchorIndex = index
-        anchorArrival = arrivalMs
-      }
+
       travelMinutes = Math.max(1, Math.round((arrivalMs - baseTime) / 60000))
+
+      // 動態車速：以「上一次成功配對的官方 ETA」到「本次官方 ETA」的實際時間與里程計算；
+      // 中間站缺 ETA 時使用累計里程（仍屬同一班車的實際路段表現）。
+      if (source === 'live') {
+        if (
+          lastLiveArrival != null &&
+          arrivalMs > lastLiveArrival &&
+          metersSinceLastLive > 0
+        ) {
+          const travelSeconds = (arrivalMs - lastLiveArrival) / 1000
+          const speedKmh = (metersSinceLastLive / travelSeconds) * 3.6
+          if (Number.isFinite(speedKmh)) {
+            currentSpeedKmh = Math.min(
+              DYNAMIC_SPEED_MAX_KMH,
+              Math.max(DYNAMIC_SPEED_MIN_KMH, speedKmh),
+            )
+            dynamicSpeed = true
+          }
+        }
+        lastLiveArrival = arrivalMs
+        metersSinceLastLive = 0
+      }
+    } else {
+      // 沒有基準班次時間：只累加相鄰路段耗時，供「+X 分鐘車程」顯示
+      accumulatedMs += hopMs
+      travelMinutes = Math.max(1, Math.round(accumulatedMs / 60000))
     }
 
     if (travelMinutes <= previousMinutes) travelMinutes = previousMinutes + 1
@@ -280,5 +307,7 @@ export function buildTravelPlan({
     byStopId,
     approximate,
     terminusMinutes: entries.length > 0 ? entries[entries.length - 1].travelMinutes : null,
+    speedKmh: currentSpeedKmh,
+    dynamicSpeed,
   }
 }

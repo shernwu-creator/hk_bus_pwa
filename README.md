@@ -289,19 +289,22 @@ scripts/
 
 演算法（不額外發 API）：
 
-1. **幾何車程**：相鄰站點用 Haversine 直線距離 × 道路繞行係數 `1.3` 換算道路里程，
-   除以香港市區巴士平均車速 `19 km/h` 得到行駛時間，再累加「每經過一站 `35` 秒」的停靠時間：
-   `車程分鐘 = round(累計道路里程 ÷ 19 000 × 60 + 經過站數 × 35 ÷ 60)`（最少 1 分）。
-   缺少座標的相鄰站以平均站距 450 公尺代替，banner 會提示「部分站點缺少座標」。
-2. **實時 ETA 校準（優先策略）**：頁面上已展開的站點會取得官方實時 ETA。配對「同一班車」的規則：
-   候選班次必須晚於上一個錨點（有官方時間的站）至少 1 分鐘、且不晚於「幾何預測 + 容許誤差」
-   （依車程長短在 **4～15 分鐘**之間縮放）；符合條件者取「加權後最接近幾何預測」的一班
-   （偏早的誤差權重較低，因為 19 km/h 的幾何估算偏保守、容易高估車程）。採用後以該站為新錨點，
-   之後的站改用「錨點時間 + 幾何車程」推算，讓上遊的實際延誤往下游傳遞；超過 90 秒沒有更新的 ETA
-   不再採用，若被夾回成單調遞增的推算值也不會標成官方資料。
-3. **預計到達**：`基準班次時間 + 累計車程`，以 `formatClock()` 顯示成 `HH:mm`；各站車程與時間都強制遞增
-   （實時資料抖動或四捨五入時也不會出現「後站比前站早」）。
-4. **沒有實時班次時**：只顯示純車程（`+X 分鐘車程`）並給出友善提示，不顯示 `HH:mm`。
+1. **相鄰站逐段推算（Sequential）**：相鄰站點用 Haversine 直線距離 × 道路繞行係數 `1.3` 換算道路里程，
+   每段耗時 = 里程 ÷ 目前車速 + 每站 `35` 秒停靠時間；`predictedArrival = previousArrival + 相鄰耗時`
+   （逐站累加，不再由基準站一次過加總全部幾何里程）。缺少座標的相鄰站以平均站距 450 公尺代替，
+   banner 會提示「部分站點缺少座標」。
+2. **Sequential ETA Matching**：頁面上已展開站點取得的官方實時 ETA，只接受落在
+   `[上一站到達 + 最短 1 分鐘, 上一站到達 + 相鄰路段預計耗時 + 10 分鐘寬鬆容錯]` 區間的班次
+   （超出區間視為下一班車）；符合條件者取「加權後最接近預測」的一班（偏早誤差權重 `0.5`）。
+   超過 90 秒沒有更新的 ETA 不再採用；被夾回成單調遞增的推算值不會標成官方資料。
+3. **動態車速（Dynamic Speed）**：連續兩個成功配對的官方 ETA（中間站缺 ETA 時以累計里程計）會計算
+   `實際車速 = 累計道路里程 ÷ (本次 ETA − 對上一個 live ETA)`，即時更新 `currentSpeedKmh`
+   （限制 5–65 km/h，避免 ETA 抖動造成離譜車速）；之後缺少 ETA 的站用最新車速做幾何 fallback，
+   尚未學到之前才用預設 `19 km/h`。`buildTravelPlan` 回傳 `speedKmh`／`dynamicSpeed`，
+   banner 顯示目前採用的車速。
+4. **預計到達**：`上一站到達 + 相鄰耗時`（或配對到的官方時間），以 `formatClock()` 顯示成 `HH:mm`；
+   各站車程與時間都強制遞增（實時資料抖動或四捨五入時也不會出現「後站比前站早」）。
+5. **沒有實時班次時**：只顯示純車程（`+X 分鐘車程`）並給出友善提示，不顯示 `HH:mm`（`arrivalMs = null`）。
 
 互動：
 
@@ -591,4 +594,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **全站視覺統一為款式 B 毛玻璃** | `.card` 改為 `rounded-[22px] border-white/80 bg-white/85 backdrop-blur-xl`＋柔和陰影（深色 slate）；`OperatorBadge` 改玫瑰／琥珀／薄荷圓角膠囊；`BusCard` 路線號碼框 `rounded-[14px]`（聯營／焦點路線用藍紫漸層）；`EtaSlots` 改 14px 膠囊，≤3 分鐘或首班用薄荷綠高光、其餘柔和內嵌玻璃塊；`StopSection` 展開鈕改 28px 圓形玻璃按鈕。 |
 | **準備過渡至 Cloudflare Pages** | 移除 Tailwind 已無人使用的 `kmb`／`ctb` 品牌色與 `shadow-card`（改用原生 arbitrary shadow），新增 `public/_redirects`（`/* /index.html 200`）作 SPA fallback；建置後會複製到 `dist/_redirects`，與 GitHub Pages 的 `404.html` 並存。 |
 | **行動版搜尋鍵盤與首頁站名可讀性** | `SearchBar` 的 `<input>` 補上 `autoCapitalize="characters"`（保留 `type="search"`／`inputMode="search"`／`autoCorrect="off"`／`autoComplete="off"`／`enterKeyHint="search"`），行動裝置更容易喚起英數鍵盤；`StopSection` 移除站名前的 MapPin 圖示，站點標題由 `text-lg font-semibold` 升級為 `text-xl font-extrabold`（站序頁仍保留站序數字徽章）。 |
+| **後續到站推算要更貼近實際班次** | `travelPlan.js` 改為 **Sequential ETA Matching + Dynamic Speed**：逐站以「上一站到達 + 相鄰路段耗時」推算，實時 ETA 只在「上一站 + 最短 1 分鐘 ~ 上一站 + 相鄰耗時 + 10 分鐘」區間內配對；連續兩個 live 站以實際里程／時間差更新 `currentSpeedKmh`（限制 5–65 km/h），缺少 ETA 的站改用最新車速 fallback。`buildTravelPlan` 額外回傳 `speedKmh`／`dynamicSpeed`，banner 顯示目前車速；移除舊有 4～15 分鐘比例容錯與錨點累計邏輯。 |
 

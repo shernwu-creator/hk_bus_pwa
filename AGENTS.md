@@ -109,6 +109,9 @@ src/
   仍對應站點收藏（向下相容）。站點存 `hkb:favorites:v1`、路線存獨立的 `hkb:favorite-routes:v1`
   （不可把舊 key 改成物件或清空）。`Favorites` 以毛玻璃分段切換兩個分頁；路線卡用 `getRouteStops()`
   ＋目前座標找最近候車站，再以 `useBusData()` 取最近三班車，並用 `buildRouteSequencePath()` 原視窗開站序頁。
+- **站序到站推算**：`src/utils/travelPlan.js` 以 Sequential Matching 逐站推算
+  （`上一站到達 + 相鄰路段耗時`），實時 ETA 只在 sequential 容錯區間配對；連續兩個 live 站會用
+  實際里程／時間差更新 `currentSpeedKmh` 作後續 fallback。不要改回「靜態 19 km/h 由基準站一次過加總」。
 - **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
   「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
   展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。
