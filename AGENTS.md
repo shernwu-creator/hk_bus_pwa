@@ -12,7 +12,7 @@
 npm ci             # 安裝依賴（與 CI 相同）
 npm run dev        # 開發伺服器 http://localhost:5173
 npm run lint       # oxlint（提交前必跑）
-npm run build      # 產出 dist/（含 sw.js、manifest.webmanifest、404.html）
+npm run build      # 產出 dist/（含 sw.js、manifest.webmanifest、404.html、_redirects）
 npm run preview    # 驗證 PWA（掛在 /hk_bus_pwa/ 子路徑）
 npm run sync:data  # 重建城巴／小巴站點索引與票價表（需連線，數分鐘）
 ```
@@ -84,7 +84,8 @@ src/
 - **子路徑部署**：`vite.config.js` 的 `base`、Router 的 `basename`、manifest 的 `start_url/scope`
   三處必須一致（GitHub Pages 為 `/hk_bus_pwa/`）；站內導覽一律用 react-router 的 `<Link>`／`useNavigate()`
   （basename 由 Router 處理，不可再手動拼 `BASE_URL` 或 `window.open`）；只有外部連結（例如 Google Maps）
-  使用 `target="_blank" rel="noopener noreferrer"`。
+  使用 `target="_blank" rel="noopener noreferrer"`。準備過渡至 Cloudflare Pages：`public/_redirects` 的
+  `/* /index.html 200` 是 SPA 深層連結的 fallback，會複製到 `dist/_redirects`，**不要刪除**。
 - **路線站序頁**：路徑 `/route/:operator/:route/:direction`，query 參數
   `stop`（要高亮／展開的站）、`name`、`siblings`、`serviceType`、`routeId`、`routeSeq`、`orig`、`dest`。
   由站點卡以 `navigate()` 原視窗切換（`buildRouteSequencePath()`，見 `src/utils/routeLinks.js`）。
@@ -124,7 +125,8 @@ src/
 
 - UI 文案與註解以**繁體中文**為主；程式碼使用 2 空格、單引號、無分號（現有風格）。
 - 樣式一律 Tailwind utility class，共用外觀用 `index.css` 的 `.card`、`.chip`、`.skeleton`。
-- 顏色需同時支援 `dark:`；不要新增全域 CSS 除非必要。
+- 顏色需同時支援 `dark:`；不要新增全域 CSS 除非必要。Tailwind 已不再定義 `kmb`／`ctb` 品牌色與
+  `shadow-card`，請使用原生 utility（業者色見 `OperatorBadge`、卡片陰影見 `.card`）。
 - 視覺為「款式 B」：毛玻璃膠囊 Header／懸浮島 Dock、藍紫漸層選中態；沿用現有 Tailwind class，不要改回全寬實色導覽列。
 - 款式 B 元件 token：`.card` 為 22px 圓角玻璃卡；`OperatorBadge` 用玫瑰／琥珀／薄荷圓角膠囊；
   `BusCard` 路線號碼框 14px（聯營路線用藍紫漸層 `featured`）；`EtaSlots` 14px 膠囊（≤3 分鐘或首班薄荷綠高光）；

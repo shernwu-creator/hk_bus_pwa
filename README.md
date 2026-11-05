@@ -20,7 +20,7 @@
 ```bash
 npm ci               # 依 package-lock.json 安裝（CI 相同）
 npm run dev          # http://localhost:5173
-npm run build        # 產出 dist/（含 sw.js、manifest.webmanifest、404.html）
+npm run build        # 產出 dist/（含 sw.js、manifest.webmanifest、404.html、_redirects）
 npm run preview      # 以靜態伺服器驗證 PWA（注意：會掛在 /hk_bus_pwa/ 子路徑）
 npm run lint         # oxlint
 ```
@@ -48,7 +48,9 @@ GitHub Actions 的 [`sync-data.yml`](./.github/workflows/sync-data.yml) 會每�
 
 ---
 
-## 2. GitHub Pages 部署
+## 2. 部署（GitHub Pages／Cloudflare Pages）
+
+### 2.1 GitHub Pages
 
 | 項目 | 設定 |
 | --- | --- |
@@ -69,6 +71,16 @@ GitHub Actions 的 [`sync-data.yml`](./.github/workflows/sync-data.yml) 會每�
 > 同時安裝在同一部裝置，且日後改網域時仍被視為同一個 App 的升級。
 
 改用自己的網域（或部署到 `<user>.github.io` 根目錄）時，只要在 CI 設定 `VITE_BASE_PATH=/`，其餘設定會自動跟隨。
+
+### 2.2 Cloudflare Pages（準備過渡）
+
+- 建置指令：`npm run build`；輸出目錄：`dist`。部署在根目錄時設定環境變數 `VITE_BASE_PATH=/`，
+  Router 的 `basename` 與 manifest 的 `start_url`/`scope` 會自動跟隨（子路徑規則見 2.1）。
+- **SPA 深層連結**：`public/_redirects`（建置後位於 `dist/_redirects`）內容為單行
+  `/* /index.html 200`，讓 `/search`、`/route/...` 等 React Router 路徑直接開啟時仍回傳 App；
+  Cloudflare Pages 會自動讀取此檔，不需要另外設定 Functions。
+- `public/` 內的靜態資源會原樣複製到 `dist/`，因此本機 `npm run build` 後可直接確認
+  `dist/_redirects` 存在；GitHub Pages 仍使用 `dist/404.html` fallback，兩種部署方式可並存。
 
 ---
 
@@ -172,6 +184,7 @@ src/
 
 public/
 ├─ data/                     # 由 sync:data 產生（請勿手改）
+├─ _redirects                # Cloudflare Pages SPA fallback：/* /index.html 200（會原樣複製到 dist/）
 └─ pwa-*.png / favicon.svg / apple-touch-icon.png
 
 scripts/
@@ -481,7 +494,7 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
   - 自家 `/data/*.json` 索引 → `StaleWhileRevalidate`，快取名稱 `hkbus-static-data`；
   - `tile.openstreetmap.org`（OSM 圖磚）→ `CacheFirst`（7 天、最多 240 張），快取名稱 `hkbus-map-tiles`；只快取正常瀏覽過的圖磚，符合 OSM 的本機快取要求，不做 prefetch／大量下載。
 - 圖示：`public/pwa-192x192.png`、`pwa-512x512.png`、`pwa-maskable-512x512.png`、`apple-touch-icon.png`，皆由 `npm run generate:icons` 產生。
-- 驗證方式：`npm run build && npm run preview`，開啟 `http://localhost:4173/hk_bus_pwa/`，在 DevTools → Application 檢查 Manifest 與 Service Worker；`dist/404.html` 應存在。
+- 驗證方式：`npm run build && npm run preview`，開啟 `http://localhost:4173/hk_bus_pwa/`，在 DevTools → Application 檢查 Manifest 與 Service Worker；`dist/404.html` 與 `dist/_redirects` 都應存在。
 
 ---
 
@@ -575,4 +588,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **搜尋／站序頁要有全線軌跡地圖** | `StopMap` 新增 route mode（`routeStops`／`focusedStopId`／`onClearFocus`）：`L.polyline`（#0ea5e9、weight 4）、起點綠終點琥珀、未聚焦時 `fitBounds` 全線、聚焦時 `flyTo` 17 並顯示站名、Google Maps 連結跟隨聚焦站、左上「◎ 顯示全線軌跡」清除聚焦（聚焦時隱藏縮放鈕）。`Search`／`RouteSequence` 以 `React.lazy` 置頂 sticky 顯示地圖；新增 `useMapCollapse` 統一捲動收起（Search 監聽 window、站序頁監聽清單 `onScroll`），`RouteStopsPanel` 以 `topOffset` 把返回列貼在地圖下緣。 |
 | **收藏頁要分成站點與路線雙分頁** | `useFavorites` 擴充為站點（沿用 `hkb:favorites:v1`）＋路線（新 key `hkb:favorite-routes:v1`，舊資料逐筆正規化、不覆寫舊 key）兩組 API（`favoriteStops`／`favoriteRoutes`、`isFavoriteStop`／`toggleFavoriteStop`、`isFavoriteRoute`／`toggleFavoriteRoute`，舊名稱保留）。`Search` 搜尋結果卡與 `RouteSequence` 頂部控制列加入星號收藏。`Favorites` 改為款式 B 毛玻璃分段切換器；收藏路線卡以 `getRouteStops`＋目前 GPS 找最近候車站，用 `useBusData` 顯示最近三班車，並可原視窗進入全線站序頁。 |
 | **全站視覺統一為款式 B 毛玻璃** | `.card` 改為 `rounded-[22px] border-white/80 bg-white/85 backdrop-blur-xl`＋柔和陰影（深色 slate）；`OperatorBadge` 改玫瑰／琥珀／薄荷圓角膠囊；`BusCard` 路線號碼框 `rounded-[14px]`（聯營／焦點路線用藍紫漸層）；`EtaSlots` 改 14px 膠囊，≤3 分鐘或首班用薄荷綠高光、其餘柔和內嵌玻璃塊；`StopSection` 展開鈕改 28px 圓形玻璃按鈕。 |
+| **準備過渡至 Cloudflare Pages** | 移除 Tailwind 已無人使用的 `kmb`／`ctb` 品牌色與 `shadow-card`（改用原生 arbitrary shadow），新增 `public/_redirects`（`/* /index.html 200`）作 SPA fallback；建置後會複製到 `dist/_redirects`，與 GitHub Pages 的 `404.html` 並存。 |
 

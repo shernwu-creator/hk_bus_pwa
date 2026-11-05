@@ -406,7 +406,7 @@ export default function StopMap({
     <section aria-label={t('map.label')} className="relative">
       <div
         ref={mapWrapRef}
-        className={`relative overflow-hidden rounded-[22px] border border-white/80 bg-white/85 shadow-card backdrop-blur-xl transition-[height] duration-300 ease-out dark:border-slate-700/70 dark:bg-slate-800/80 ${
+        className={`relative overflow-hidden rounded-[22px] border border-white/80 bg-white/85 shadow-[0_8px_30px_rgb(15,23,42,0.06)] backdrop-blur-xl transition-[height] duration-300 ease-out dark:border-slate-700/70 dark:bg-slate-800/80 dark:shadow-[0_8px_30px_rgb(0,0,0,0.35)] ${
           collapsed ? 'h-[138px]' : 'h-[210px]'
         }`}
       >
