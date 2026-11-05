@@ -2,7 +2,7 @@
 
 以 GPS 定位查詢香港 **九巴 (KMB)**、**城巴 (CTB)** 與 **專線小巴 (GMB)** 站點的 PWA：附近站點、路線搜尋、票價與最近三班車到站倒數，支援離線開啟（App Shell）與深色模式。
 
-首頁頂部是互動式地圖（Leaflet + OpenStreetMap 圖磚，免 API Key、免計費），站點列表與地圖雙向聯動：附近站點一載入就預設展開最近一站並把地圖移過去；點列表中的站點會 `flyTo` 該站，點地圖圖釘則會展開並捲動到對應的站點卡片。
+首頁頂部是互動式地圖（Leaflet + OpenStreetMap 圖磚，免 API Key、免計費），站點列表與地圖雙向聯動：附近站點一載入就預設展開最近一站並把地圖移過去；點列表中的站點會 `flyTo` 該站，點地圖圖釘則會展開並捲動到對應的站點卡片。地圖會**置頂常駐**，往下滑時平滑縮小約 1/3，地圖底部的毛玻璃膠囊顯示定位狀態與重新定位／展開全圖。
 
 站點內點選任一路線，會在**原視窗**直接切換到該方向的全線站序：自動標示你開啟時所在的站點並展開最近三班車，其他站點可逐一展開查看，也可一鍵**反轉方向**查另一邊的車；只有 Google Maps 外部連結仍會另開新頁／喚醒 App。
 
@@ -144,7 +144,7 @@ src/
 │  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
 │  ├─ BusCard.jsx            # 路線卡片：業者、目的地、票價、三班倒數（點擊在原視窗開啟站序）
-│  ├─ StopMap.jsx            # 附近站點互動地圖（Leaflet + OpenStreetMap 圖磚；深色以 CSS filter 轉換、站點 flyTo 聯動）
+│  ├─ StopMap.jsx            # 附近站點互動地圖（置頂／collapsed 高度動畫、內嵌定位膠囊與 Google Maps 按鈕；Leaflet 圖磚、站點 flyTo 聯動）
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
@@ -354,8 +354,16 @@ JSON 損壞則沿用原本的容錯讀取（退回空清單、不 `throw`）。
 - **雙向聯動**：點列表站點 → 展開 ETA 並 `flyTo`；點地圖圖釘 → 展開該站（已展開則保持）並以
   `scrollIntoView({ behavior: 'smooth', block: 'center' })` 捲到對應卡片。卡片 DOM 以 `ref` Map 依
   `favoriteKey(stop)` 對應。
-- **輔助操作**：右上角「在 Google Maps 開啟此站」外部連結（Google Maps 內可再選街景／步行導航），
-  右下角「重新定位」按鈕；Leaflet 內建縮放鈕與版權列在深色模式另有配色（`src/index.css`）。
+- **置頂與高度縮放**：`Nearby` 把地圖包在 `sticky top-2` 容器（以 `top: calc(var(--app-header-h) + 0.5rem)` 貼在
+  毛玻璃 Header 下緣，避免被蓋住），往下瀏覽站點時地圖永遠留在畫面上。`StopMap` 新增 `collapsed` prop：
+  高度由 `h-[210px]` 平滑縮至 `h-[138px]`（約 1/3，`transition-[height] duration-300 ease-out`）；
+  高度改變後在 `transitionend` 與 320ms 保險計時器觸發 `map.invalidateSize()`，圖磚與中心點不會跑位。
+- **捲動門檻**：`Nearby` 以 passive scroll + `requestAnimationFrame` 防抖，`window.scrollY > 36` 收起地圖、
+  `<= 12` 展開；地圖膠囊的「展開全圖 ▼」會暫時解除自動收起，要再往下滑 >120px 才重新收起。
+- **輔助操作**：右上角「在 Google Maps 開啟 ↗」毛玻璃膠囊常駐（優先目前選中站點，其次使用者位置／地圖中心；
+  以 `target="_blank" rel="noopener noreferrer"` 另開分頁或喚醒 Google Maps App）；地圖底部內嵌單行定位膠囊
+  （綠點、狀態文字、誤差／更新時間、重新定位、更新附近站點；收起時顯示「展開全圖 ▼」）。Leaflet 版權列
+  以 `.hkb-map .leaflet-bottom { bottom: 3rem; }` 抬高，避免被膠囊遮擋；縮放鈕與版權列在深色模式另有配色。
 - 圖磚由 Workbox `CacheFirst` 快取（見 7. PWA 設定）：只快取使用者正常瀏覽過的圖磚（7 天 TTL），不 prefetch、不提供離線下載功能。
 
 ### 6.9 路線卡排序（長途優先）
@@ -520,4 +528,5 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **iOS 每次開啟都要重新點定位** | `useLocation` 新增 `hkb:location-consent`／`hkb:last-location` 記憶：成功定位即寫入，初始化先用快取座標渲染並背景更新；已授權或 Permissions API 回報 `granted` 時自動 `getCurrentPosition`；`PERMISSION_DENIED` 清除授權記憶並提示 iOS 的 Safari「網站設定 › 位置 › 允許」或「加入主畫面」（見 6.10）。 |
 | **站名與目的地中英上下堆疊太亂** | 新增 `useLanguage`（`hkb:lang`）：`pickLang()` 只輸出目前語言，`StopSection`／`BusCard`／`RouteStopsPanel`／`RouteSequence`／`Search` 移除英文小字行；UI 文案改用 `t()` 字典（導覽、票價、分鐘、Google Maps、反轉方向、推算、錯誤按鈕等）。 |
 | **改成款式 B 毛玻璃設計** | 全站冰藍／午夜漸層背景＋`pointer-events-none` 光暈；頂部改毛玻璃膠囊 Header（`rounded-[22px]`、`bg-white/85 backdrop-blur-xl`），右側 `[中 | EN]` 分段切換與日夜按鈕；`BottomNav` 改底部懸浮島 Dock（`fixed bottom-3 inset-x-4 mx-auto max-w-sm rounded-full`、選中 Tab 藍紫漸層）。 |
+| **首頁地圖要置頂，往下滑自動縮小** | `Nearby` 以 `sticky` 容器把地圖貼在 Header 下方常駐（`top: calc(var(--app-header-h) + 0.5rem)`）；`StopMap` 新增 `collapsed`／`onToggleCollapse`，高度 210px↔138px（約 1/3）配 `transition-[height] duration-300 ease-out`，並以 `transitionend`＋保險計時器觸發 `invalidateSize()`。scroll 門檻：`>36` 收起、`<=12` 展開；手動「展開全圖」後要再下滑 >120px 才重新收起。Google Maps 按鈕改為右上常駐毛玻璃膠囊，地圖底部的定位資訊濃縮成單行毛玻璃膠囊（綠點、狀態、重新定位／更新／展開全圖）。 |
 

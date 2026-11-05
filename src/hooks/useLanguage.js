@@ -70,11 +70,13 @@ const STRINGS = {
     '附近站點互動地圖，點擊圖釘可展開對應站點',
     'Interactive nearby stops map. Tap a pin to open its stop.',
   ],
-  'map.googleMaps': ['在 Google Maps 開啟此站', 'Open this stop in Google Maps'],
+  'map.googleMaps': ['在 Google Maps 開啟', 'Open in Google Maps'],
   'map.googleMapsTitle': [
     '在 Google Maps 開啟此站（可查看街景與步行導航）',
     'Open this stop in Google Maps (Street View & walking directions)',
   ],
+  'map.expand': ['展開全圖', 'Expand map'],
+  'map.collapse': ['收起地圖', 'Collapse map'],
 
   'stop.platforms': ['{n} 個站位', '{n} platforms'],
   'stop.routes': ['{n} 條路線', '{n} routes'],

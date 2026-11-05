@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { ExternalLink, LocateFixed } from 'lucide-react'
+import { LocateFixed, RefreshCw } from 'lucide-react'
 import useTheme from '../hooks/useTheme.js'
 import useLanguage from '../hooks/useLanguage.js'
 import { favoriteKey } from '../hooks/useFavorites.js'
+import { formatClock } from '../utils/format.js'
 
 /**
  * 官方 OpenStreetMap 圖磚：免費、免 API Key（不再使用會顯示 API KEY REQUIRED 浮水印的 CartoDB）。
@@ -70,12 +71,17 @@ function useIsDark() {
 
 /**
  * 附近站點互動地圖（Leaflet + OpenStreetMap）
+ *
+ * 款式 B：毛玻璃外框；地圖高度可在 `collapsed` 之間平滑切換（210px ↔ 138px，約縮小 1/3），
+ * 由 `Nearby` 依 window.scrollY 控制，讓地圖在往下瀏覽站點時仍置頂常駐。
+ *
  * - 底圖跟隨深淺色主題：淺色用官方 OSM 圖磚，深色以 CSS filter 反轉，免 API Key。
  * - 藍點為使用者目前位置；附近站點以圖釘標示，選中的站點為琥珀色並顯示站名。
  * - 點擊圖釘會呼叫 `onSelectStop(stop)`，由 Nearby 展開站點卡片並捲動到該卡片。
- * - 右上角「在 Google Maps 開啟此站」為外部輔助（街景／步行導航），
- *   以 `target="_blank" rel="noopener noreferrer"` 另開新頁／喚醒 Google Maps App，
- *   不影響站內原視窗的瀏覽狀態；右下角為重新定位。
+ * - 右上角「在 Google Maps 開啟 ↗」常駐（優先目前選中站點，其次使用者位置／地圖中心），
+ *   以 `target="_blank" rel="noopener noreferrer"` 另開新頁／喚醒 Google Maps App。
+ * - 地圖底部內嵌定位狀態膠囊：綠點、狀態文字、重新定位／更新按鈕；
+ *   收起時多一顆「展開全圖」按鈕，讓使用者暫時恢復完整高度。
  *
  * @param {object} props
  * @param {{lat:number,lng:number}|null} [props.center] 使用者位置（地圖初始／更新視角）
@@ -85,7 +91,14 @@ function useIsDark() {
  * @param {{key:string,lat:number,lng:number,seq:number}|null} [props.focus] 要 flyTo 的站點
  * @param {(stop:object) => void} [props.onSelectStop] 點擊站點圖釘
  * @param {() => void} [props.onLocate] 重新定位
+ * @param {() => void} [props.onRefresh] 重新整理附近站點與 ETA
  * @param {boolean} [props.locating] 定位中
+ * @param {boolean} [props.refreshing] 附近站點更新中
+ * @param {boolean} [props.isFallback] 目前使用預設／上次位置
+ * @param {number|null} [props.accuracy] 定位誤差（公尺）
+ * @param {number|null} [props.updatedAt] 定位更新時間
+ * @param {boolean} [props.collapsed] 是否縮小為 138px
+ * @param {() => void} [props.onToggleCollapse] 點擊「展開全圖」時切換高度
  */
 export default function StopMap({
   center = null,
@@ -95,11 +108,19 @@ export default function StopMap({
   focus = null,
   onSelectStop,
   onLocate,
+  onRefresh,
   locating = false,
+  refreshing = false,
+  isFallback = false,
+  accuracy = null,
+  updatedAt = null,
+  collapsed = false,
+  onToggleCollapse,
 }) {
   const isDark = useIsDark()
   const { t, pickLang } = useLanguage()
   const mapElRef = useRef(null)
+  const mapWrapRef = useRef(null)
   const mapRef = useRef(null)
   // 只有第一次掛載時需要初始視角，之後的移動交給 center／focus 兩個 effect
   const initialCenterRef = useRef(center)
@@ -140,7 +161,7 @@ export default function StopMap({
     }
   }, [isDark])
 
-  // 附近站點圖釘；選中站點高亮，並準備「在 Google Maps 開啟此站」的連結
+  // 附近站點圖釘；選中站點高亮
   useEffect(() => {
     const map = mapRef.current
     if (!map) return undefined
@@ -208,15 +229,40 @@ export default function StopMap({
     map.flyTo([focus.lat, focus.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { duration: 0.8 })
   }, [focus])
 
+  // 高度切換（210px → 138px）後 Leaflet 必須重算容器尺寸，否則圖磚與中心點會偏移。
+  // transitionend 與保險計時器各觸發一次（部分環境不會觸發 transitionend）。
+  useEffect(() => {
+    const element = mapWrapRef.current
+    if (!element) return undefined
+    const invalidate = () => mapRef.current?.invalidateSize()
+    element.addEventListener('transitionend', invalidate)
+    const timer = window.setTimeout(invalidate, 320)
+    return () => {
+      element.removeEventListener('transitionend', invalidate)
+      window.clearTimeout(timer)
+    }
+  }, [collapsed])
+
   const selectedStop = useMemo(
     () => stops.find((stop) => favoriteKey(stop) === selectedKey) ?? null,
     [stops, selectedKey],
   )
 
-  const mapsUrl =
-    selectedStop && Number.isFinite(selectedStop.lat) && Number.isFinite(selectedStop.lng)
-      ? `https://www.google.com/maps/search/?api=1&query=${selectedStop.lat},${selectedStop.lng}`
-      : null
+  // Google Maps 常駐連結：優先目前選中站點 → 使用者位置 → 地圖中心 → 預設視角
+  const mapsTarget = useMemo(() => {
+    if (
+      selectedStop &&
+      Number.isFinite(selectedStop.lat) &&
+      Number.isFinite(selectedStop.lng)
+    ) {
+      return selectedStop
+    }
+    if (userLocation) return userLocation
+    if (center) return center
+    return DEFAULT_CENTER
+  }, [selectedStop, userLocation, center])
+
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsTarget.lat},${mapsTarget.lng}`
 
   const handleLocate = useCallback(() => {
     onLocate?.()
@@ -226,39 +272,94 @@ export default function StopMap({
     }
   }, [onLocate, userLocation])
 
+  const statusText = locating
+    ? t('nearby.locating')
+    : isFallback
+      ? t('nearby.fallback')
+      : t('nearby.located')
+  const dotClass = locating
+    ? 'animate-pulse bg-sky-500'
+    : isFallback
+      ? 'bg-amber-500'
+      : 'bg-emerald-500'
+  const details = [
+    Number.isFinite(accuracy) ? t('nearby.accuracy', { n: Math.round(accuracy) }) : '',
+    updatedAt ? t('nearby.updated', { time: formatClock(updatedAt) }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <section className="card overflow-hidden" aria-label={t('map.label')}>
-      <div className="relative">
+    <section aria-label={t('map.label')} className="relative">
+      <div
+        ref={mapWrapRef}
+        className={`relative overflow-hidden rounded-[22px] border border-white/80 bg-white/85 shadow-card backdrop-blur-xl transition-[height] duration-300 ease-out dark:border-slate-700/70 dark:bg-slate-800/80 ${
+          collapsed ? 'h-[138px]' : 'h-[210px]'
+        }`}
+      >
         <div
           ref={mapElRef}
-          className="h-52 w-full"
+          className="hkb-map h-full w-full"
           style={{ background: isDark ? '#1e293b' : '#e2e8f0' }}
           aria-label={t('map.aria')}
         />
 
-        {mapsUrl && (
-          <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={t('map.googleMapsTitle')}
-            className="absolute right-2 top-2 z-[1000] inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white dark:bg-slate-900/90 dark:text-slate-200 dark:hover:bg-slate-900"
-          >
-            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">{t('map.googleMaps')}</span>
-          </a>
-        )}
-
-        <button
-          type="button"
-          onClick={handleLocate}
-          disabled={locating}
-          aria-label={t('nearby.relocate')}
-          title={t('nearby.relocate')}
-          className="absolute bottom-2 right-2 z-[1000] flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-600 shadow-md backdrop-blur transition hover:bg-white hover:text-sky-600 disabled:opacity-50 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-sky-400"
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t('map.googleMapsTitle')}
+          className="absolute right-2 top-2 z-[1000] inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-slate-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800"
         >
-          <LocateFixed className={`h-4 w-4 ${locating ? 'animate-spin' : ''}`} aria-hidden="true" />
-        </button>
+          <span className="truncate">{t('map.googleMaps')}</span>
+          <span aria-hidden="true">↗</span>
+        </a>
+
+        {/* 底部內嵌定位狀態膠囊（單行）；收起時可點「展開全圖」暫時恢復完整高度 */}
+        <div className="absolute inset-x-2.5 bottom-2 z-[400] flex items-center gap-1.5 rounded-full border border-white/70 bg-white/90 py-1 pl-3 pr-1 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-800/90">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-[11px] leading-4">
+            <span className="font-semibold text-slate-700 dark:text-slate-100">
+              {statusText}
+            </span>
+            {details && !collapsed && (
+              <span className="ml-1 text-slate-500 dark:text-slate-400">· {details}</span>
+            )}
+          </span>
+          {collapsed && onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              aria-label={t('map.expand')}
+              title={t('map.expand')}
+              className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700 transition hover:bg-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:hover:bg-sky-500/30"
+            >
+              {t('map.expand')} ▼
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleLocate}
+            disabled={locating}
+            aria-label={t('nearby.relocate')}
+            title={t('nearby.relocate')}
+            className="shrink-0 rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-700/60"
+          >
+            <LocateFixed className={`h-3.5 w-3.5 ${locating ? 'animate-spin' : ''}`} aria-hidden="true" />
+          </button>
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label={t('nearby.refresh')}
+              title={t('common.refresh')}
+              className="shrink-0 rounded-full p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-700/60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
     </section>
   )

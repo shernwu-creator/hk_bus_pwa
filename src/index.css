@@ -70,6 +70,11 @@
     color: theme('colors.sky.400');
   }
 
+  /* 地圖底部內嵌的定位膠囊（StopMap）會蓋住 Leaflet 版權列：抬高，避免遮擋 OSM 署名 */
+  .hkb-map .leaflet-bottom {
+    bottom: 3rem;
+  }
+
   /* 官方 OSM 只有淺色圖磚；深色模式以 CSS filter 反轉成深色（零成本、免額外圖磚來源） */
   .map-tiles-dark {
     filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);

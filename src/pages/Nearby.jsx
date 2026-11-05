@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { LocateFixed, MapPin, RefreshCw, Star, TriangleAlert } from 'lucide-react'
+import { Star, TriangleAlert } from 'lucide-react'
 import StopSection from '../components/StopSection.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
 import useBusData from '../hooks/useBusData.js'
@@ -7,7 +7,7 @@ import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLocation from '../hooks/useLocation.js'
 import useLanguage from '../hooks/useLanguage.js'
 import { getFareUpdatedAt, getNearbyStops } from '../services/api.js'
-import { formatClock, formatDateTime } from '../utils/format.js'
+import { formatDateTime } from '../utils/format.js'
 
 /** Leaflet 只在地圖區塊需要，動態載入讓首屏（定位＋站點列表）不必等地圖程式碼 */
 const StopMap = lazy(() => import('../components/StopMap.jsx'))
@@ -41,6 +41,12 @@ export default function Nearby() {
   // 地圖聚焦的站點（列表點擊 → 地圖 flyTo；地圖圖釘 → 展開卡片並捲動）
   const [mapFocus, setMapFocus] = useState(null)
   const [selectedKey, setSelectedKey] = useState(null)
+  // 地圖置頂時往下滑會收起 1/3（210px → 138px），回到頂部附近才展開；
+  // manualExpandRef 記錄使用者是否按過「展開全圖」，暫停自動收起直到再次大幅往下捲動。
+  const [collapsed, setCollapsed] = useState(false)
+  const manualExpandRef = useRef(false)
+  // 按下「展開全圖」當下的 scrollY：之後要再往下滑 >120px 才重新自動收起
+  const manualExpandYRef = useRef(0)
   const stopCardRefs = useRef(new Map())
   const focusSeq = useRef(0)
 
@@ -137,6 +143,52 @@ export default function Nearby() {
     refresh()
   }, [refresh])
 
+  // 捲動偵測（passive + requestAnimationFrame 防抖）：
+  // scrollY > 36 收起地圖、<= 12 展開；手動「展開全圖」後要再大幅下滑（> 160）才重新收起。
+  useEffect(() => {
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const y = window.scrollY
+      if (y <= 12) {
+        manualExpandRef.current = false
+        setCollapsed(false)
+        return
+      }
+      if (manualExpandRef.current) {
+        if (y > manualExpandYRef.current + 120) {
+          manualExpandRef.current = false
+          setCollapsed(true)
+        }
+        return
+      }
+      if (y > 36) setCollapsed(true)
+    }
+    const handleScroll = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(update)
+    }
+    handleScroll()
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      if (frame) window.cancelAnimationFrame(frame)
+    }
+  }, [])
+
+  // 點「展開全圖」：暫時解除自動收起，直到使用者再次大幅往下捲動（>120px）
+  const handleToggleCollapse = useCallback(() => {
+    setCollapsed((prev) => {
+      if (prev) {
+        manualExpandRef.current = true
+        manualExpandYRef.current = window.scrollY
+        return false
+      }
+      manualExpandRef.current = false
+      return true
+    })
+  }, [])
+
   // 列表點擊站點：切換展開；若是「展開」就同步把地圖飛到該站
   const handleToggleStop = useCallback(
     (stop) => {
@@ -171,71 +223,43 @@ export default function Nearby() {
 
   return (
     <div className="space-y-3">
-      <Suspense fallback={<div className="skeleton h-52 w-full rounded-2xl" aria-hidden="true" />}>
-        <StopMap
-          center={mapCenter}
-          userLocation={mapCenter}
-          stops={stops}
-          selectedKey={selectedKey}
-          focus={mapFocus}
-          onSelectStop={handleSelectStop}
-          onLocate={locate}
-          locating={isLocating}
-        />
-      </Suspense>
+      {/* 置頂常駐地圖：避開固定 Header 的高度（--app-header-h）後貼在其下緣 */}
+      <div
+        className="sticky top-2 z-20"
+        style={{ top: 'calc(var(--app-header-h, 3.5rem) + 0.5rem)' }}
+      >
+        <Suspense
+          fallback={
+            <div className="skeleton h-[210px] w-full rounded-[22px]" aria-hidden="true" />
+          }
+        >
+          <StopMap
+            center={mapCenter}
+            userLocation={mapCenter}
+            stops={stops}
+            selectedKey={selectedKey}
+            focus={mapFocus}
+            onSelectStop={handleSelectStop}
+            onLocate={locate}
+            onRefresh={reloadAll}
+            locating={isLocating}
+            refreshing={refreshing || status === 'loading'}
+            isFallback={isFallback}
+            accuracy={accuracy}
+            updatedAt={updatedAt}
+            collapsed={collapsed}
+            onToggleCollapse={handleToggleCollapse}
+          />
+        </Suspense>
+      </div>
 
-      <section className="card p-3">
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
-            <MapPin className="h-4 w-4" aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {isLocating
-                ? t('nearby.locating')
-                : isFallback
-                  ? t('nearby.fallback')
-                  : t('nearby.located')}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              {Number.isFinite(lat) && Number.isFinite(lng)
-                ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-                : t('nearby.waiting')}
-              {Number.isFinite(accuracy) &&
-                ` · ${t('nearby.accuracy', { n: Math.round(accuracy) })}`}
-              {updatedAt ? ` · ${t('nearby.updated', { time: formatClock(updatedAt) })}` : ''}
-            </p>
-            {(locationError || etaError) && (
-              <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400">
-                <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-                <span>{locationError || etaError}</span>
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={locate}
-              disabled={isLocating}
-              className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:hover:bg-slate-800"
-              aria-label={t('nearby.relocate')}
-              title={t('nearby.relocate')}
-            >
-              <LocateFixed className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={reloadAll}
-              disabled={status === 'loading' || refreshing}
-              className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 dark:hover:bg-slate-800"
-              aria-label={t('nearby.refresh')}
-              title={t('common.refresh')}
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </section>
+      {/* 位置錯誤（例如拒絕授權的 iOS 提示）以單行提示顯示，不佔用大卡片 */}
+      {(locationError || etaError) && (
+        <p className="flex items-start gap-1 px-1 text-[11px] text-amber-600 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>{locationError || etaError}</span>
+        </p>
+      )}
 
       {status === 'loading' && <StopSkeleton rows={4} />}
 

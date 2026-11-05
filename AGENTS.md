@@ -93,6 +93,11 @@ src/
   不要恢復 `window.opener`／`window.close()` 邏輯。站序列可以收藏站點（與主 App 共用 `hkb:favorites:v1`）。
 - **附近站點排序**：小巴（GMB）一律排在最後；同組內已收藏站點優先於距離，其餘依距離。
   不要為「統一排序」而改動路線站序（站序必須保持官方 seq 次序）。
+- **首頁置頂地圖**：`Nearby` 以 `sticky` 容器把地圖貼在 Header 下方常駐（top 用 `--app-header-h` 補償），
+  `StopMap` 的 `collapsed` 切換 210px↔138px（約 1/3，`transition-[height] duration-300 ease-out`），
+  高度改變後必須 `map.invalidateSize()`（`transitionend` ＋ 320ms 保險）。scroll 門檻：`> 36` 收起、`<= 12` 展開；
+  手動「展開全圖」後要再下滑 >120px 才重新自動收起。地圖底部定位膠囊與右上 Google Maps 按鈕都是毛玻璃膠囊
+  （`backdrop-blur-md`），不要改回獨立的大卡片或把按鈕移出地圖。
 - **站點展開行為**：附近／搜尋／收藏／站序頁的站點卡都可以**同時展開多個**；不要改回
   「一次只展開一個」的 accordion（會令打開下面站點時上面收起、版面高度改變造成畫面跳動）。
   展開狀態用 component state（Set）管理；站序頁 URL 的 `stop` 只作來源站／分享用途。
