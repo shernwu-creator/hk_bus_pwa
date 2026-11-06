@@ -24,7 +24,7 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
  * @param {'idle'|'loading'|'ready'|'error'} props.status
  * @param {string|null} props.error
  * @param {Map<string, {stop:object, routes:Array, error:string|null}>} props.etaGroupsByKey 以 favoriteKey(stop) 對應各站 ETA
- * @param {Set<string>} props.expandedIds 目前展開的站點 id（可同時多個）
+ * @param {string|number|null} props.activeStopId 目前展開的站點 id（手風琴：同一時間只展開一站）
  * @param {(id:string) => void} props.onToggleStop
  * @param {() => void} props.onBack
  * @param {(stop:object) => boolean} props.isFavorite
@@ -42,7 +42,7 @@ export default function RouteStopsPanel({
   status,
   error,
   etaGroupsByKey,
-  expandedIds,
+  activeStopId,
   onToggleStop,
   onBack,
   isFavorite,
@@ -75,7 +75,7 @@ export default function RouteStopsPanel({
   }, [])
 
   // 推算基準站：id 由頁面在「開啟推算」時固定，這裡只負責在站序中找回該站。
-  // 不再讀取 expandedIds，因此展開／收合任何站點都不會改變推算的時間原點。
+  // 不再讀取目前展開的站點，因此展開／收合任何站點都不會改變推算的時間原點。
   const planBaseStop = useMemo(() => {
     if (!planEnabled || stops.length === 0) return null
     return stops.find((stop) => String(stop.id) === String(planBaseStopId)) ?? stops[0]
@@ -122,7 +122,7 @@ export default function RouteStopsPanel({
   }, [planBaseStop, stops, planEtasByStopId, etaUpdatedAt])
 
   // 基準站的 ETA 還沒回來（顯示「正在取得基準班次」而不是「暫無班次」）。
-  // 基準站由頁面持續輪詢，即使被收合也會更新，所以不需再檢查 expandedIds。
+  // 基準站由頁面持續輪詢，即使被收合也會更新，所以不需再檢查目前展開的站點。
   const planBaseLoading = planBaseStop != null && !etaGroupsByKey.has(favoriteKey(planBaseStop))
 
   const baseLabel =
@@ -210,7 +210,7 @@ export default function RouteStopsPanel({
           <div className="space-y-2">
             {stops.map((stop) => {
               const key = favoriteKey(stop)
-              const isExpanded = expandedIds.has(stop.id)
+              const isExpanded = String(activeStopId) === String(stop.id)
               const group = etaGroupsByKey.get(key) ?? { stop, routes: [], error: null }
               // 已展開但 ETA 未回來先顯示骨架
               const isLoading = isExpanded && !etaGroupsByKey.has(key)

@@ -46,8 +46,9 @@ export default function Search() {
   // 避免在 effect 內同步 setState（react/set-state-in-effect）。
   const [loadedStopsKey, setLoadedStopsKey] = useState(null)
   const [stopsReloadToken, setStopsReloadToken] = useState(0)
-  // 可同時展開多個站點，打開下面的站不會收起上面的
-  const [expandedIds, setExpandedIds] = useState(() => new Set())
+  // 手風琴：同一時間只展開一個站點（activeStopId）。點開新站點時自動收合舊的，
+  // 避免多張地圖／ETA 卡片同時展開令畫面冗長。
+  const [activeStopId, setActiveStopId] = useState(null)
   // 「推算各站到站時間」的狀態提升到頁面層：基準站在開啟推算時固定下來，
   // 之後展開／收合其他站點都不會改變推算輸入，避免推算時間隨 UI 狀態跳動。
   const [planEnabled, setPlanEnabled] = useState(false)
@@ -129,31 +130,31 @@ export default function Search() {
     }
   }, [selected, stopsRequestKey, t])
 
-  // 展開中的站點（可同時多個）；帶完整站點物件，展開後站名才不會退回站點編號
-  const expandedStops = useMemo(
-    () => stops.filter((stop) => expandedIds.has(stop.id)),
-    [stops, expandedIds],
+  // 目前展開的站點（手風琴只有一個）；帶完整站點物件，展開後站名才不會退回站點編號
+  const activeStop = useMemo(
+    () => stops.find((stop) => String(stop.id) === String(activeStopId)) ?? null,
+    [stops, activeStopId],
   )
 
   // 推算基準站：只在「開啟推算」那一刻決定（優先目前展開的站點，否則由第一站起算），
-  // 之後不再跟隨 expandedIds 變動。推算輸入因此與 UI 展開／收合完全解耦，
+  // 之後不再跟隨站點展開狀態變動。推算輸入因此與 UI 展開／收合完全解耦，
   // 不會因為多開或少開一站而換基準、令後續各站時間大幅跳動。
   const planBaseStop = useMemo(() => {
     if (!planEnabled || stops.length === 0) return null
     return stops.find((stop) => String(stop.id) === String(planBaseStopId)) ?? stops[0]
   }, [planEnabled, stops, planBaseStopId])
 
-  // 輪詢清單＝已展開站點＋推算基準站：基準站即使被收合也要持續更新，
+  // 輪詢清單＝目前展開的站點＋推算基準站：基準站即使被收合也要持續更新，
   // 否則基準班次會過期，後續推算會突然退回純幾何估算。
   const etaRefs = useMemo(() => {
     if (!selected) return []
-    const refs = expandedStops.map((stop) => ({ ...stop }))
+    const refs = activeStop ? [{ ...activeStop }] : []
     if (planBaseStop) {
       const baseKey = favoriteKey(planBaseStop)
       if (!refs.some((stop) => favoriteKey(stop) === baseKey)) refs.push({ ...planBaseStop })
     }
     return refs
-  }, [expandedStops, planBaseStop, selected])
+  }, [activeStop, planBaseStop, selected])
 
   const { groups, updatedAt: etaUpdatedAt } = useBusData(etaRefs, {
     enabled: etaRefs.length > 0,
@@ -166,25 +167,16 @@ export default function Search() {
     [groups],
   )
 
-  const toggleStop = useCallback((id) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  // 開啟推算時把基準站固定為「目前展開的最前面站點」，沒有展開任何站點則由路線第一站起算。
+  // 開啟推算時把基準站固定為「目前展開的站點」，沒有展開任何站點則由路線第一站起算。
   // 基準站之後不再跟隨展開狀態；要改用其他站推算就把該站展開，關閉再重新開啟推算。
   const togglePlan = useCallback(() => {
     if (planEnabled) {
       setPlanEnabled(false)
       return
     }
-    setPlanBaseStopId(expandedStops[0]?.id ?? stops[0]?.id ?? null)
+    setPlanBaseStopId(activeStop?.id ?? stops[0]?.id ?? null)
     setPlanEnabled(true)
-  }, [planEnabled, expandedStops, stops])
+  }, [planEnabled, activeStop, stops])
 
   // 選擇路線（事件處理器內重置站序狀態，讓面板立即回到 loading）
   const chooseRoute = useCallback(
@@ -195,7 +187,7 @@ export default function Search() {
       setStops([])
       setStopsError(null)
       setLoadedStopsKey(null)
-      setExpandedIds(new Set())
+      setActiveStopId(null)
       setPlanEnabled(false)
       setPlanBaseStopId(null)
       setFocusedStopId(null)
@@ -213,16 +205,17 @@ export default function Search() {
     window.requestAnimationFrame(() => window.scrollTo({ top: resultsScrollRef.current }))
   }, [resetCollapse])
 
-  // 點站點列：展開／收合 ETA、把地圖聚焦到該站；展開時讓置頂地圖回到完整高度，
-  // 配合 StopSection 的 scroll-margin-top 精準貼合在地圖（及 sticky 返回列）下方。
+  // 點站點列：手風琴式展開／收合（同一時間只展開一站），並把地圖聚焦到該站；
+  // 展開時讓置頂地圖回到完整高度，配合 StopSection 的 scroll-margin-top
+  // 精準貼合在地圖（及 sticky 返回列）下方。
   const handleToggleStop = useCallback(
     (id) => {
-      const willExpand = !expandedIds.has(id)
+      const willExpand = String(activeStopId) !== String(id)
       if (willExpand) resetCollapse()
       setFocusedStopId(id)
-      toggleStop(id)
+      setActiveStopId(willExpand ? id : null)
     },
-    [expandedIds, resetCollapse, toggleStop],
+    [activeStopId, resetCollapse],
   )
 
   // 點地圖上的站點圖釘：只聚焦（不展開），右上 Google Maps 連結會跟著指向該站
@@ -230,7 +223,7 @@ export default function Search() {
   const clearMapFocus = useCallback(() => setFocusedStopId(null), [])
 
   const retryStops = useCallback(() => {
-    setExpandedIds(new Set())
+    setActiveStopId(null)
     setStopsReloadToken((token) => token + 1)
   }, [])
 
@@ -270,7 +263,7 @@ export default function Search() {
           status={stopsStatus}
           error={stopsError}
           etaGroupsByKey={etaGroupsByKey}
-          expandedIds={expandedIds}
+          activeStopId={activeStopId}
           onToggleStop={handleToggleStop}
           onBack={backToResults}
           isFavorite={(stop) => favoriteKeys.has(favoriteKey(stop))}
