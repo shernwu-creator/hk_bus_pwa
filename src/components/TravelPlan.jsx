@@ -52,9 +52,10 @@ export function TravelPlanToggle({ active, onClick, className = '' }) {
  * @param {object} props.plan `buildTravelPlan()` 的回傳值
  * @param {string} [props.etaLabel] 基準班次描述，例如「第 2 班」
  * @param {boolean} [props.baseLoading] 基準站的 ETA 還在載入（顯示「正在取得」而不是「暫無班次」）
+ * @param {string} [props.hint] 覆寫底部的操作提示（站序頁可點 ETA 換基準；搜尋頁基準固定）
  * @param {string} [props.className]
  */
-export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, className = '' }) {
+export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, hint, className = '' }) {
   const { t, pickLang } = useLanguage()
   if (!plan?.baseStop) return null
   const hasRealtime = plan.baseTime != null
@@ -108,7 +109,7 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, classNam
                   })}
                   {plan.terminusMinutes != null &&
                     t('plan.terminusMinutes', { n: plan.terminusMinutes })}
-                  {t('plan.clickHint')}
+                  {hint ?? t('plan.clickHint')}
                 </>
               )
             : baseLoading

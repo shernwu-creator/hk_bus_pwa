@@ -263,6 +263,10 @@ const STRINGS = {
   ],
   'plan.terminusMinutes': ['，到終點約 {n} 分', ', about {n} min to the terminus'],
   'plan.clickHint': ['；點擊任一站點的班次可切換推算基準。', '; tap a bus slot at any stop to change the base.'],
+  'plan.fixedBaseHint': [
+    '；展開／收合其他站點不會改變基準。要改用其他站推算，請先展開該站，再關閉並重新開啟推算。',
+    '; opening other stops does not change the base. To re-anchor, expand another stop and toggle the estimate off and on.',
+  ],
   'plan.loadingBaseDesc': [
     '正在取得基準站的最近三班車，取得後會自動顯示預計到達時間。',
     'Loading the next 3 buses at the base stop; estimated arrival times will appear automatically.',

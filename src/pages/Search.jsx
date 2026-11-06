@@ -48,6 +48,10 @@ export default function Search() {
   const [stopsReloadToken, setStopsReloadToken] = useState(0)
   // 可同時展開多個站點，打開下面的站不會收起上面的
   const [expandedIds, setExpandedIds] = useState(() => new Set())
+  // 「推算各站到站時間」的狀態提升到頁面層：基準站在開啟推算時固定下來，
+  // 之後展開／收合其他站點都不會改變推算輸入，避免推算時間隨 UI 狀態跳動。
+  const [planEnabled, setPlanEnabled] = useState(false)
+  const [planBaseStopId, setPlanBaseStopId] = useState(null)
   // 開啟站序面板前的路線清單捲動位置：返回清單時還原，站序滑到深處按「返回」才不會跳到別處
   const resultsScrollRef = useRef(0)
   // 站序頁全線軌跡地圖：focusedStopId 為 null 時顯示全線，點選站點後聚焦該站
@@ -130,10 +134,26 @@ export default function Search() {
     () => stops.filter((stop) => expandedIds.has(stop.id)),
     [stops, expandedIds],
   )
-  const etaRefs = useMemo(
-    () => (selected ? expandedStops.map((stop) => ({ ...stop })) : []),
-    [expandedStops, selected],
-  )
+
+  // 推算基準站：只在「開啟推算」那一刻決定（優先目前展開的站點，否則由第一站起算），
+  // 之後不再跟隨 expandedIds 變動。推算輸入因此與 UI 展開／收合完全解耦，
+  // 不會因為多開或少開一站而換基準、令後續各站時間大幅跳動。
+  const planBaseStop = useMemo(() => {
+    if (!planEnabled || stops.length === 0) return null
+    return stops.find((stop) => String(stop.id) === String(planBaseStopId)) ?? stops[0]
+  }, [planEnabled, stops, planBaseStopId])
+
+  // 輪詢清單＝已展開站點＋推算基準站：基準站即使被收合也要持續更新，
+  // 否則基準班次會過期，後續推算會突然退回純幾何估算。
+  const etaRefs = useMemo(() => {
+    if (!selected) return []
+    const refs = expandedStops.map((stop) => ({ ...stop }))
+    if (planBaseStop) {
+      const baseKey = favoriteKey(planBaseStop)
+      if (!refs.some((stop) => favoriteKey(stop) === baseKey)) refs.push({ ...planBaseStop })
+    }
+    return refs
+  }, [expandedStops, planBaseStop, selected])
 
   const { groups, updatedAt: etaUpdatedAt } = useBusData(etaRefs, {
     enabled: etaRefs.length > 0,
@@ -155,6 +175,17 @@ export default function Search() {
     })
   }, [])
 
+  // 開啟推算時把基準站固定為「目前展開的最前面站點」，沒有展開任何站點則由路線第一站起算。
+  // 基準站之後不再跟隨展開狀態；要改用其他站推算就把該站展開，關閉再重新開啟推算。
+  const togglePlan = useCallback(() => {
+    if (planEnabled) {
+      setPlanEnabled(false)
+      return
+    }
+    setPlanBaseStopId(expandedStops[0]?.id ?? stops[0]?.id ?? null)
+    setPlanEnabled(true)
+  }, [planEnabled, expandedStops, stops])
+
   // 選擇路線（事件處理器內重置站序狀態，讓面板立即回到 loading）
   const chooseRoute = useCallback(
     (row) => {
@@ -165,6 +196,8 @@ export default function Search() {
       setStopsError(null)
       setLoadedStopsKey(null)
       setExpandedIds(new Set())
+      setPlanEnabled(false)
+      setPlanBaseStopId(null)
       setFocusedStopId(null)
       resetCollapse()
       window.scrollTo({ top: 0 })
@@ -244,6 +277,9 @@ export default function Search() {
           onToggleFavorite={(stop) => toggleFavorite({ ...stop, routes: [selected.route] })}
           onRetry={retryStops}
           etaUpdatedAt={etaUpdatedAt}
+          planEnabled={planEnabled}
+          onTogglePlan={togglePlan}
+          planBaseStopId={planBaseStopId}
           topOffset={showMapArea ? (collapsed ? '146px' : '218px') : null}
         />
       </>

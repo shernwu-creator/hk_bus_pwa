@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ArrowLeft, Route as RouteIcon } from 'lucide-react'
 import OperatorBadge from './OperatorBadge.jsx'
 import StopSection from './StopSection.jsx'
@@ -12,8 +12,11 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
 /**
  * 路線站序面板：顯示選定路線（含方向）的站點，可展開查看該站的實時到站時間
  *
- * 開啟「推算各站到站時間」後，會以「目前展開中、且已取得實時 ETA」的最前面站點
- * 作為基準站，往後推算每一站的累計車程與預計到達時間（算法見 src/utils/travelPlan.js）。
+ * 開啟「推算各站到站時間」後，會以「開啟推算時固定下來的基準站」的實時 ETA 作為
+ * 時間原點，往後逐站推算累計車程與預計到達時間（算法見 src/utils/travelPlan.js）。
+ *
+ * 推算狀態（`planEnabled`／`planBaseStopId`）由頁面持有，本元件只負責呈現：
+ * 展開／收合任何站點都不會改變基準站或推算輸入，避免 ETA 數值隨 UI 狀態跳動。
  *
  * @param {object} props
  * @param {{operator:string, route:string, direction:string, orig:string, destination:string}} props.selected
@@ -28,6 +31,9 @@ import { buildTravelPlan, pickBaseEta } from '../utils/travelPlan.js'
  * @param {(stop:object) => void} props.onToggleFavorite
  * @param {() => void} props.onRetry
  * @param {number|null} [props.etaUpdatedAt] ETA 批次更新的時間戳（推算時用來判斷資料是否新鮮）
+ * @param {boolean} [props.planEnabled] 是否開啟推算（由頁面控制，確保基準站固定）
+ * @param {() => void} [props.onTogglePlan] 切換推算模式
+ * @param {string|number|null} [props.planBaseStopId] 固定的推算基準站 id
  * @param {string|null} [props.topOffset] 置頂地圖高度（例如 '146px'）；有值時返回列貼在地圖下方
  */
 export default function RouteStopsPanel({
@@ -43,10 +49,12 @@ export default function RouteStopsPanel({
   onToggleFavorite,
   onRetry,
   etaUpdatedAt = null,
+  planEnabled = false,
+  onTogglePlan,
+  planBaseStopId = null,
   topOffset = null,
 }) {
   const { t, pickLang } = useLanguage()
-  const [planEnabled, setPlanEnabled] = useState(false)
   const sectionRef = useRef(null)
   const toolbarRef = useRef(null)
 
@@ -66,58 +74,56 @@ export default function RouteStopsPanel({
     return () => observer.disconnect()
   }, [])
 
-  // 各站已取得的實時 ETA：只涵蓋「已展開」的站點（搜尋頁以批次查詢，不額外發請求）
-  const liveEtasByStopId = useMemo(() => {
-    const records = new Map()
-    for (const stop of stops) {
-      const group = etaGroupsByKey.get(favoriteKey(stop))
-      const directionRows = (group?.routes ?? []).filter(
-        (row) => row.direction === selected.direction,
-      )
-      // 同一方向可能已依目的地分成多組（循環線去程／回程）：
-      // 用 ETA 站序挑出屬於這一站的那一組，避免推算基準取到反方向的班次
-      const stopSeq = Number(stop.seq)
-      const entry =
-        (Number.isFinite(stopSeq) &&
-          directionRows.find((row) =>
-            row.etas.some((eta) => Number(eta.stopSeq) === stopSeq),
-          )) ||
-        directionRows[0]
-      const etas = entry?.etas ?? []
-      if (etas.length === 0) continue
-      records.set(String(stop.id), { etas, updatedAt: etaUpdatedAt ?? 0 })
-    }
-    return records
-  }, [stops, etaGroupsByKey, selected.direction, etaUpdatedAt])
-
-  // 推算基準：已展開且取得實時 ETA 的最前面站點；都沒有時退回第一站（純車程推算）
+  // 推算基準站：id 由頁面在「開啟推算」時固定，這裡只負責在站序中找回該站。
+  // 不再讀取 expandedIds，因此展開／收合任何站點都不會改變推算的時間原點。
   const planBaseStop = useMemo(() => {
     if (!planEnabled || stops.length === 0) return null
-    return (
-      stops.find((stop) => expandedIds.has(stop.id) && liveEtasByStopId.has(String(stop.id))) ??
-      stops[0]
+    return stops.find((stop) => String(stop.id) === String(planBaseStopId)) ?? stops[0]
+  }, [planEnabled, stops, planBaseStopId])
+
+  // 推算只採用「基準站」的官方實時 ETA 作為時間原點；下游各站一律以相鄰路段耗時逐站推算。
+  // 這樣推算輸入只有基準站（由頁面持續輪詢）＋固定站序，不受其他站點是否展開影響，
+  // 也就不會因為多開一站而累加或重複計算基準時間。
+  const planEtasByStopId = useMemo(() => {
+    const records = new Map()
+    if (!planBaseStop) return records
+    const group = etaGroupsByKey.get(favoriteKey(planBaseStop))
+    const directionRows = (group?.routes ?? []).filter(
+      (row) => row.direction === selected.direction,
     )
-  }, [planEnabled, stops, expandedIds, liveEtasByStopId])
+    // 同一方向可能已依目的地分成多組（循環線去程／回程）：
+    // 用 ETA 站序挑出屬於基準站的那一組，避免取到反方向的班次
+    const stopSeq = Number(planBaseStop.seq)
+    const entry =
+      (Number.isFinite(stopSeq) &&
+        directionRows.find((row) =>
+          row.etas.some((eta) => Number(eta.stopSeq) === stopSeq),
+        )) ||
+      directionRows[0]
+    const etas = entry?.etas ?? []
+    if (etas.length > 0) {
+      records.set(String(planBaseStop.id), { etas, updatedAt: etaUpdatedAt ?? 0 })
+    }
+    return records
+  }, [planBaseStop, etaGroupsByKey, selected.direction, etaUpdatedAt])
 
   const travelPlan = useMemo(() => {
     if (!planBaseStop) return null
     const baseIndex = stops.findIndex((stop) => String(stop.id) === String(planBaseStop.id))
     const now = etaUpdatedAt ?? 0
-    const base = pickBaseEta(liveEtasByStopId.get(String(planBaseStop.id)), 0, now)
+    const base = pickBaseEta(planEtasByStopId.get(String(planBaseStop.id)), 0, now)
     return buildTravelPlan({
       stops,
       baseIndex,
       baseTime: base?.time ?? null,
-      liveEtas: liveEtasByStopId,
+      liveEtas: planEtasByStopId,
       now,
     })
-  }, [planBaseStop, stops, liveEtasByStopId, etaUpdatedAt])
+  }, [planBaseStop, stops, planEtasByStopId, etaUpdatedAt])
 
-  // 基準站已展開、但 ETA 還沒回來（顯示「正在取得基準班次」而不是「暫無班次」）
-  const planBaseLoading =
-    planBaseStop != null &&
-    expandedIds.has(planBaseStop.id) &&
-    !etaGroupsByKey.has(favoriteKey(planBaseStop))
+  // 基準站的 ETA 還沒回來（顯示「正在取得基準班次」而不是「暫無班次」）。
+  // 基準站由頁面持續輪詢，即使被收合也會更新，所以不需再檢查 expandedIds。
+  const planBaseLoading = planBaseStop != null && !etaGroupsByKey.has(favoriteKey(planBaseStop))
 
   const baseLabel =
     travelPlan?.baseTime != null
@@ -177,7 +183,7 @@ export default function RouteStopsPanel({
           <div className="flex justify-end px-1">
             <TravelPlanToggle
               active={planEnabled}
-              onClick={() => setPlanEnabled((current) => !current)}
+              onClick={onTogglePlan}
             />
           </div>
         )}
@@ -194,7 +200,11 @@ export default function RouteStopsPanel({
       {status === 'ready' && stops.length > 0 && (
         <>
           {planEnabled && travelPlan && (
-            <TravelPlanBanner plan={travelPlan} baseLoading={planBaseLoading} />
+            <TravelPlanBanner
+              plan={travelPlan}
+              baseLoading={planBaseLoading}
+              hint={t('plan.fixedBaseHint')}
+            />
           )}
 
           <div className="space-y-2">
