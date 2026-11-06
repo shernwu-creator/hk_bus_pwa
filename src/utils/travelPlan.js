@@ -12,7 +12,7 @@ import { distanceInMeters } from '../services/api.js'
  *      落在區間內的官方 ETA 視為同一班車；再取加權後最接近預測的一班。
  *   3. 動態車速（Dynamic Speed）：連續兩個成功配對的官方 ETA（允許中間站缺 ETA，
  *      以累計道路里程計）可算出實際車速 `距離 ÷ (本次 ETA - 上次 ETA)`，
- *      即時更新 `currentSpeedKmh`；之後缺少 ETA 的站改用最新車速做幾何 fallback。
+ *      扣除區間停站時間後即時更新 `currentSpeedKmh`；之後缺少 ETA 的站改用最新車速做幾何 fallback。
  *
  * 所有數值都是「估算」：香港市區路況、站距、燈位差異都會影響實際到站時間，
  * UI 一律以「推算／約」呈現，不可當成官方承諾。
@@ -160,7 +160,7 @@ export function pickBaseEta(record, index = 0, now = Date.now()) {
  *   2. 該站有新鮮實時 ETA、且時間落在「上一站 + 最短行車 ~ 上一站 + 相鄰耗時 + 10 分鐘」
  *      區間內時，視為同一班車並直接採用官方時間（`source = 'live'`）。
  *   3. 連續兩個成功配對的 live 站（允許中間站缺 ETA，以累計里程計）可算出實際車速，
- *      即時更新 `currentSpeedKmh`；之後缺少 ETA 的站用最新車速做幾何 fallback。
+ *      扣除區間停站耗時後即時更新 `currentSpeedKmh`；之後缺少 ETA 的站用最新車速做幾何 fallback。
  *   4. 沒有基準班次時間（`baseTime` 非有限數字）時，只回傳累計車程分鐘，`arrivalMs` 為 null，
  *      UI 會以「+X 分鐘車程」呈現。
  *
@@ -220,9 +220,10 @@ export function buildTravelPlan({
   let previousMinutes = 0
   // 沒有基準班次時間時，改用累計耗時換算車程分鐘
   let accumulatedMs = 0
-  // 最近一次「官方 ETA」的到達時間，以及自那時起累計的道路里程（用來學動態車速）
+  // 最近一次「官方 ETA」的到達時間，以及自那時起累計的道路里程與站數（用來學動態車速）
   let lastLiveArrival = hasBaseTime ? baseTime : null
   let metersSinceLastLive = 0
+  let hopsSinceLastLive = 0
   const entries = []
 
   for (let index = safeIndex + 1; index < stops.length; index += 1) {
@@ -239,6 +240,7 @@ export function buildTravelPlan({
 
     if (hasBaseTime && previousArrival != null) {
       metersSinceLastLive += hopMeters
+      hopsSinceLastLive += 1
 
       const liveArrival = pickLiveArrival(
         stops[index]?.id != null ? liveEtas?.get(String(stops[index].id)) : undefined,
@@ -261,10 +263,8 @@ export function buildTravelPlan({
         source = 'geometry'
       }
 
-      travelMinutes = Math.max(1, Math.round((arrivalMs - baseTime) / 60000))
-
       // 動態車速：以「上一次成功配對的官方 ETA」到「本次官方 ETA」的實際時間與里程計算；
-      // 中間站缺 ETA 時使用累計里程（仍屬同一班車的實際路段表現）。
+      // 中間站缺 ETA 時使用累計里程與站數扣除停靠時間，避免雙重累加停站耗時。
       if (source === 'live') {
         if (
           lastLiveArrival != null &&
@@ -272,7 +272,10 @@ export function buildTravelPlan({
           metersSinceLastLive > 0
         ) {
           const travelSeconds = (arrivalMs - lastLiveArrival) / 1000
-          const speedKmh = (metersSinceLastLive / travelSeconds) * 3.6
+          // 扣除這段區間累積的預期停站時間（至少保留 40% 的時間作純行駛時間），算出純行車速度
+          const totalDwellSeconds = hopsSinceLastLive * DWELL_SECONDS_PER_STOP
+          const pureDriveSeconds = Math.max(travelSeconds * 0.4, travelSeconds - totalDwellSeconds)
+          const speedKmh = (metersSinceLastLive / pureDriveSeconds) * 3.6
           if (Number.isFinite(speedKmh)) {
             currentSpeedKmh = Math.min(
               DYNAMIC_SPEED_MAX_KMH,
@@ -283,14 +286,30 @@ export function buildTravelPlan({
         }
         lastLiveArrival = arrivalMs
         metersSinceLastLive = 0
+        hopsSinceLastLive = 0
       }
+
+      // 車程分鐘與 formatClock 鐘點時間對齊：
+      // 避免 Math.round 四捨五入造成 "+3 分" 卻顯示 "12:02 到達" 的 1 分鐘視覺矛盾
+      const baseClockMinutes = Math.floor(baseTime / 60000)
+      const arrivalClockMinutes = Math.floor(arrivalMs / 60000)
+      travelMinutes = Math.max(1, arrivalClockMinutes - baseClockMinutes)
     } else {
       // 沒有基準班次時間：只累加相鄰路段耗時，供「+X 分鐘車程」顯示
       accumulatedMs += hopMs
       travelMinutes = Math.max(1, Math.round(accumulatedMs / 60000))
     }
 
-    if (travelMinutes <= previousMinutes) travelMinutes = previousMinutes + 1
+    if (travelMinutes <= previousMinutes) {
+      travelMinutes = previousMinutes + 1
+      // 若有基準時間，到達時間也同步前推至至少該分鐘，確保 HH:mm 與 travelMinutes 一致
+      if (hasBaseTime && arrivalMs != null) {
+        const minArrivalMs = baseTime + travelMinutes * 60000
+        if (arrivalMs < minArrivalMs) {
+          arrivalMs = minArrivalMs
+        }
+      }
+    }
     previousMinutes = travelMinutes
     previousArrival = arrivalMs
 

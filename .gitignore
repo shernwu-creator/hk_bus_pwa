@@ -10,6 +10,7 @@ repomix-output.xml
 repomix-output.txt
 repomix-output.json
 *-output.xml
+.repomixignore
 
 # ==========================================
 # 2. 依賴套件 (Dependencies)

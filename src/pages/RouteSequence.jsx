@@ -398,6 +398,30 @@ function StopEtaPanel({
  * siblings／serviceType／routeId／routeSeq／orig／dest），因此可直接分享、重新整理，
  * 反轉方向也是以 replace 導覽更新 URL，不依賴前一個視窗的 React state。
  */
+
+/**
+ * 背景監聽推算基準站的 ETA：
+ * 當推算開啟、且使用者展開其他站時，手風琴會將基準站收合。
+ * 此元件在背景持續 30 秒輪詢基準站，確保推算時間原點不中斷、不逾期。
+ */
+function PlanBaseEtaWatcher({ stop, route, direction, siblingIds, onEtasChange }) {
+  const { t } = useLanguage()
+  const { etas, updatedAt, loading, error } = useStopEtas({
+    stop,
+    route,
+    direction,
+    siblingParam: siblingIds.join(','),
+    fallbackError: t('route.etaError'),
+  })
+
+  useEffect(() => {
+    if (!stop?.id) return
+    onEtasChange(stop.id, { etas, updatedAt, loading, error })
+  }, [stop?.id, etas, updatedAt, loading, error, onEtasChange])
+
+  return null
+}
+
 export default function RouteSequence() {
   const { operator, route, direction } = useParams()
   const [searchParams] = useSearchParams()
@@ -586,6 +610,10 @@ export default function RouteSequence() {
     const key = String(stopId)
     setLiveEtasByStopId((prev) => {
       if (!record) {
+        // 若該站是開啟推算中的基準站，保留其最新 ETA，避免因展開其他站而被清空
+        if (planEnabled && planBaseStop != null && String(planBaseStop.id) === key) {
+          return prev
+        }
         if (!prev.has(key)) return prev
         const next = new Map(prev)
         next.delete(key)
@@ -595,7 +623,7 @@ export default function RouteSequence() {
       next.set(key, record)
       return next
     })
-  }, [])
+  }, [planEnabled, planBaseStop])
 
   // 點擊任一站點的班次：以「那一站的這一班」為推算基準（並自動開啟推算模式）
   const handleSelectPlanEta = useCallback((stop, index) => {
@@ -608,6 +636,14 @@ export default function RouteSequence() {
   const togglePlanMode = useCallback(() => {
     if (planEnabled) {
       setPlanEnabled(false)
+      setLiveEtasByStopId((prev) => {
+        if (expandedStopId == null) return new Map()
+        const currentExpandedKey = String(expandedStopId)
+        const record = prev.get(currentExpandedKey)
+        const next = new Map()
+        if (record) next.set(currentExpandedKey, record)
+        return next
+      })
       return
     }
     setPlanEnabled(true)
@@ -615,7 +651,7 @@ export default function RouteSequence() {
     if (baseId == null) return
     setPlanBaseStopId((current) => current ?? baseId)
     setExpandedStopId((current) => current ?? baseId)
-  }, [planBaseStop, planEnabled])
+  }, [expandedStopId, planBaseStop, planEnabled])
 
   // 站序載入後把來源站捲到清單中央（只改 scrollTop，避免 scrollIntoView 讓整頁跳動）
   const stopsSignature = `${stops.length}|${stops[0]?.id ?? ''}|${stops[stops.length - 1]?.id ?? ''}`
@@ -1012,6 +1048,20 @@ export default function RouteSequence() {
                 etaLabel={t('plan.etaLabel', { n: (planBase?.index ?? 0) + 1 })}
                 baseLoading={planBaseLoading}
                 className="shrink-0"
+              />
+            )}
+
+            {planEnabled && planBaseStop && expandedStopId !== planBaseStop.id && (
+              <PlanBaseEtaWatcher
+                stop={planBaseStop}
+                route={route}
+                direction={directionValue}
+                siblingIds={
+                  planBaseStop.id === activeStopId
+                    ? activeSiblingIds
+                    : (siblingIdsByStopId.get(String(planBaseStop.id)) ?? [])
+                }
+                onEtasChange={handleEtasChange}
               />
             )}
 

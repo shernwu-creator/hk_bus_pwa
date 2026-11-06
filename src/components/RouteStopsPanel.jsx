@@ -81,36 +81,54 @@ export default function RouteStopsPanel({
     return stops.find((stop) => String(stop.id) === String(planBaseStopId)) ?? stops[0]
   }, [planEnabled, stops, planBaseStopId])
 
-  // 推算只採用「基準站」的官方實時 ETA 作為時間原點；下游各站一律以相鄰路段耗時逐站推算。
-  // 這樣推算輸入只有基準站（由頁面持續輪詢）＋固定站序，不受其他站點是否展開影響，
-  // 也就不會因為多開一站而累加或重複計算基準時間。
+  // 推算只採用「基準站」的官方實時 ETA 作為時間原點；
+  // 同時將目前手風琴展開的下游站點納入 liveEtas，讓 Sequential Matching 與動態車速在搜尋頁也能運作。
   const planEtasByStopId = useMemo(() => {
     const records = new Map()
     if (!planBaseStop) return records
-    const group = etaGroupsByKey.get(favoriteKey(planBaseStop))
-    const directionRows = (group?.routes ?? []).filter(
-      (row) => row.direction === selected.direction,
-    )
-    // 同一方向可能已依目的地分成多組（循環線去程／回程）：
-    // 用 ETA 站序挑出屬於基準站的那一組，避免取到反方向的班次
-    const stopSeq = Number(planBaseStop.seq)
-    const entry =
-      (Number.isFinite(stopSeq) &&
-        directionRows.find((row) =>
-          row.etas.some((eta) => Number(eta.stopSeq) === stopSeq),
-        )) ||
-      directionRows[0]
-    const etas = entry?.etas ?? []
-    if (etas.length > 0) {
-      records.set(String(planBaseStop.id), { etas, updatedAt: etaUpdatedAt ?? 0 })
+    const nowTimestamp = Number.isFinite(etaUpdatedAt) ? etaUpdatedAt : 0
+
+    const getStopEtasRecord = (stop) => {
+      const group = etaGroupsByKey.get(favoriteKey(stop))
+      const directionRows = (group?.routes ?? []).filter(
+        (row) => row.direction === selected.direction,
+      )
+      // 同一方向可能已依目的地分成多組（循環線去程／回程）：
+      // 用 ETA 站序挑出屬於該站的那一組，避免取到反方向的班次
+      const stopSeq = Number(stop.seq)
+      const entry =
+        (Number.isFinite(stopSeq) &&
+          directionRows.find((row) =>
+            row.etas.some((eta) => Number(eta.stopSeq) === stopSeq),
+          )) ||
+        directionRows[0]
+      const etas = entry?.etas ?? []
+      return etas.length > 0 ? { etas, updatedAt: nowTimestamp } : null
     }
+
+    const baseRecord = getStopEtasRecord(planBaseStop)
+    if (baseRecord) {
+      records.set(String(planBaseStop.id), baseRecord)
+    }
+
+    // 若目前有展開的下游站點且非基準站，也納入實時配對與動態車速計算
+    if (activeStopId != null && String(activeStopId) !== String(planBaseStop.id)) {
+      const activeStop = stops.find((stop) => String(stop.id) === String(activeStopId))
+      if (activeStop) {
+        const activeRecord = getStopEtasRecord(activeStop)
+        if (activeRecord) {
+          records.set(String(activeStop.id), activeRecord)
+        }
+      }
+    }
+
     return records
-  }, [planBaseStop, etaGroupsByKey, selected.direction, etaUpdatedAt])
+  }, [planBaseStop, activeStopId, stops, etaGroupsByKey, selected.direction, etaUpdatedAt])
 
   const travelPlan = useMemo(() => {
     if (!planBaseStop) return null
     const baseIndex = stops.findIndex((stop) => String(stop.id) === String(planBaseStop.id))
-    const now = etaUpdatedAt ?? 0
+    const now = Number.isFinite(etaUpdatedAt) ? etaUpdatedAt : 0
     const base = pickBaseEta(planEtasByStopId.get(String(planBaseStop.id)), 0, now)
     return buildTravelPlan({
       stops,
