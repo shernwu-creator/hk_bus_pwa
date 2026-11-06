@@ -1,8 +1,8 @@
 /**
  * 官方全線歷史耗時採樣腳本 (Phase 2 - Travel Time Sampling)
  * ------------------------------------------------------------------
- * 透過 DATA.GOV.HK 的九巴 `/route-eta/{route}/{service_type}` 端點，
- * 一次性取得一條路線全線所有站點的即時 ETA。
+ * 透過 DATA.GOV.HK 的九巴 `/route-eta/{route}/{service_type}` 端點
+ * 與城巴 `/route-stop` + `/eta` 端點，採樣重點長途路線全線即時 ETA。
  * 比對同一班車在相鄰站點的抵達時間差，計算出「站與站之間的真實行駛分鐘數」，
  * 並依照當前時段（早繁、午間、晚繁、深夜）平滑累加更新至 `src/data/travelTimes.json`。
  *
@@ -13,14 +13,20 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 const KMB_BASE = 'https://data.etabus.gov.hk/v1/transport/kmb'
+const CTB_BASE = 'https://rt.data.gov.hk/v2/transport/citybus'
 const TRAVEL_TIMES_FILE = path.resolve('src/data/travelTimes.json')
 
-/** 目標重點採樣路線（涵蓋市區幹道、過海隧道、新界特快與機場線） */
-const TARGET_ROUTES = [
+/** 目標九巴／聯營重點採樣路線（涵蓋市區幹道、過海隧道、新界特快、口岸與機場線） */
+const TARGET_KMB_ROUTES = [
   '1A', '2A', '6', '14', '16', '27', '30X', '40', '42C', '74X', '87D',
-  '101', '102', '104', '112', '118', '171', '601', '680', '681', '960', '968', '962',
+  '101', '102', '104', '112', '118', '171', '601', '619', '680', '681', '960', '968', '962',
   '269D', '277X', '278X', '290', '290A', '798',
-  'A21', 'E21', 'E33',
+  'B9', 'E33',
+]
+
+/** 目標城巴重點採樣路線（涵蓋口岸線與機場線） */
+const TARGET_CTB_ROUTES = [
+  'B8', 'E22', 'A21', 'E21',
 ]
 
 const RETRY = 2
@@ -116,6 +122,30 @@ function calculateDirectionSegments(rows) {
   return segmentMinutes
 }
 
+/** 平滑融合新舊數據至資料庫 */
+function mergeSegments(db, key, period, segments) {
+  if (segments.length === 0 || segments.every((v) => v === null)) return false
+  if (!db.routes[key]) db.routes[key] = {}
+  const existing = db.routes[key][period] ?? []
+
+  // 平滑融合新舊數據：新採樣以 40% 權重平滑更新
+  const merged = new Array(Math.max(existing.length, segments.length))
+  for (let i = 0; i < merged.length; i += 1) {
+    const oldVal = existing[i]
+    const newVal = segments[i]
+    if (newVal != null && oldVal != null) {
+      merged[i] = Math.max(1, Math.round(oldVal * 0.6 + newVal * 0.4))
+    } else if (newVal != null) {
+      merged[i] = newVal
+    } else {
+      merged[i] = oldVal ?? null
+    }
+  }
+
+  db.routes[key][period] = merged
+  return true
+}
+
 async function main() {
   const period = getCurrentPeriod()
   console.log(`[Phase 2] 開始採樣官方全線歷史到站耗時... (時段: ${period})`)
@@ -130,7 +160,9 @@ async function main() {
 
   let updatedRoutesCount = 0
 
-  await mapWithConcurrency(TARGET_ROUTES, CONCURRENCY, async (route) => {
+  // 1. 採樣九巴路線（單次 GET 全線站點）
+  console.log(`[Phase 2] 正在採樣九巴/聯營重點路線 (${TARGET_KMB_ROUTES.length} 條)...`)
+  await mapWithConcurrency(TARGET_KMB_ROUTES, CONCURRENCY, async (route) => {
     try {
       const json = await fetchJson(`${KMB_BASE}/route-eta/${encodeURIComponent(route)}/1`)
       const rows = json?.data ?? []
@@ -147,30 +179,40 @@ async function main() {
       for (const { key, rows: dirRows } of directions) {
         if (dirRows.length === 0) continue
         const segments = calculateDirectionSegments(dirRows)
-        if (segments.length === 0 || segments.every((v) => v === null)) continue
-
-        if (!db.routes[key]) db.routes[key] = {}
-        const existing = db.routes[key][period] ?? []
-
-        // 平滑融合新舊數據：新採樣以 40% 權重平滑更新
-        const merged = new Array(Math.max(existing.length, segments.length))
-        for (let i = 0; i < merged.length; i += 1) {
-          const oldVal = existing[i]
-          const newVal = segments[i]
-          if (newVal != null && oldVal != null) {
-            merged[i] = Math.max(1, Math.round(oldVal * 0.6 + newVal * 0.4))
-          } else if (newVal != null) {
-            merged[i] = newVal
-          } else {
-            merged[i] = oldVal ?? null
-          }
+        if (mergeSegments(db, key, period, segments)) {
+          updatedRoutesCount += 1
         }
-
-        db.routes[key][period] = merged
-        updatedRoutesCount += 1
       }
     } catch (err) {
-      console.warn(`[Phase 2] 路線 ${route} 採樣失敗: ${err.message}`)
+      console.warn(`[Phase 2] 九巴路線 ${route} 採樣失敗: ${err.message}`)
+    }
+  })
+
+  // 2. 採樣城巴路線（全線站點批次查詢）
+  console.log(`[Phase 2] 正在採樣城巴重點路線 (${TARGET_CTB_ROUTES.length} 條)...`)
+  await mapWithConcurrency(TARGET_CTB_ROUTES, 2, async (route) => {
+    for (const dir of ['outbound', 'inbound']) {
+      try {
+        const stopsRes = await fetchJson(`${CTB_BASE}/route-stop/CTB/${encodeURIComponent(route)}/${dir}`)
+        const stops = stopsRes?.data ?? []
+        if (stops.length < 2) continue
+
+        const dirLetter = dir === 'outbound' ? 'O' : 'I'
+        const stopEtas = await mapWithConcurrency(stops, 8, async (s) => {
+          const etaJson = await fetchJson(`${CTB_BASE}/eta/CTB/${s.stop}/${encodeURIComponent(route)}`)
+          const rows = etaJson?.data ?? []
+          return rows.filter((r) => r.dir === dirLetter)
+        })
+
+        const allRows = stopEtas.flat()
+        const segments = calculateDirectionSegments(allRows)
+        const key = `CTB:${route}:${dir}`
+        if (mergeSegments(db, key, period, segments)) {
+          updatedRoutesCount += 1
+        }
+      } catch (err) {
+        console.warn(`[Phase 2] 城巴路線 ${route} (${dir}) 採樣失敗: ${err.message}`)
+      }
     }
   })
 
