@@ -197,6 +197,14 @@ const STRINGS = {
   'search.indexError': ['無法取得路線清單', 'Unable to load the route list'],
   'search.stopsError': ['無法取得站序資料', 'Unable to load route stops'],
 
+  'keyboard.title': ['路線號碼鍵盤', 'Route number keypad'],
+  'keyboard.label': ['自訂路線號碼鍵盤', 'Custom route number keypad'],
+  'keyboard.letters': ['常用英文字母', 'Common route letters'],
+  'keyboard.show': ['顯示鍵盤', 'Show keypad'],
+  'keyboard.hide': ['收起鍵盤', 'Hide keypad'],
+  'keyboard.clear': ['清除全部', 'Clear all'],
+  'keyboard.backspace': ['退格', 'Backspace'],
+
   'saved.title': ['已收藏 {n} 個站點', '{n} saved stops'],
   'saved.tabsAria': ['收藏分類', 'Saved categories'],
   'saved.tabStops': ['◎ 收藏站點 ({n})', '◎ Saved stops ({n})'],

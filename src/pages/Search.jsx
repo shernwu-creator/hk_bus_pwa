@@ -3,6 +3,7 @@ import { Hash, MapPin, Star } from 'lucide-react'
 import OperatorBadge from '../components/OperatorBadge.jsx'
 import RouteStopsPanel from '../components/RouteStopsPanel.jsx'
 import SearchBar from '../components/SearchBar.jsx'
+import VirtualKeyboard from '../components/VirtualKeyboard.jsx'
 import { EmptyState, ErrorState, RouteSkeleton } from '../components/StateViews.jsx'
 import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
@@ -53,6 +54,8 @@ export default function Search() {
   // 之後展開／收合其他站點都不會改變推算輸入，避免推算時間隨 UI 狀態跳動。
   const [planEnabled, setPlanEnabled] = useState(false)
   const [planBaseStopId, setPlanBaseStopId] = useState(null)
+  // 自訂虛擬鍵盤：點搜尋框才打開，避免一進入搜尋頁就遮住底部導覽列
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
   // 開啟站序面板前的路線清單捲動位置：返回清單時還原，站序滑到深處按「返回」才不會跳到別處
   const resultsScrollRef = useRef(0)
   // 站序頁全線軌跡地圖：focusedStopId 為 null 時顯示全線，點選站點後聚焦該站
@@ -85,6 +88,9 @@ export default function Search() {
     setQuery(value)
     if (value.trim() && !routeIndex && indexStatus !== 'loading') loadIndex()
   }
+
+  const openKeyboard = useCallback(() => setKeyboardOpen(true), [])
+  const closeKeyboard = useCallback(() => setKeyboardOpen(false), [])
 
   const results = useMemo(() => {
     if (!routeIndex || !keyword) return []
@@ -190,6 +196,7 @@ export default function Search() {
       setActiveStopId(null)
       setPlanEnabled(false)
       setPlanBaseStopId(null)
+      setKeyboardOpen(false)
       setFocusedStopId(null)
       resetCollapse()
       window.scrollTo({ top: 0 })
@@ -281,7 +288,12 @@ export default function Search() {
 
   return (
     <div className="space-y-3">
-      <SearchBar value={query} onChange={handleQueryChange} onClear={() => setQuery('')} />
+      <SearchBar
+        value={query}
+        onChange={handleQueryChange}
+        onClear={() => setQuery('')}
+        onActivate={openKeyboard}
+      />
 
       {!keyword && (
         <section className="card p-3">
@@ -378,6 +390,13 @@ export default function Search() {
             })}
           </ul>
         </>
+      )}
+
+      {/* 鍵盤固定在畫面底部，預留同等高度讓最後幾筆結果可以捲到鍵盤上方 */}
+      {keyboardOpen && <div aria-hidden="true" className="h-64" />}
+
+      {keyboardOpen && (
+        <VirtualKeyboard value={query} onChange={handleQueryChange} onClose={closeKeyboard} />
       )}
     </div>
   )
