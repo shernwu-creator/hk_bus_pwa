@@ -313,7 +313,7 @@ export default function Search() {
               </button>
             ))}
           </div>
-          <p className="mt-3 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
             {t('search.popularDesc')}
           </p>
         </section>
@@ -332,7 +332,7 @@ export default function Search() {
 
       {keyword && results.length > 0 && (
         <>
-          <p className="px-1 text-[11px] text-slate-400 dark:text-slate-500">
+          <p className="px-1 text-xs text-slate-400 dark:text-slate-500">
             {t('search.found', { n: results.length })}
           </p>
           <ul className="space-y-2">
@@ -356,7 +356,7 @@ export default function Search() {
                     <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {t('search.to', { dest: pickLang(row.destination, row.destinationEn) })}
                     </span>
-                    <span className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                       <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
                       <span className="truncate">{pickLang(row.orig, row.origEn)}</span>
                       <span className="chip shrink-0 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">

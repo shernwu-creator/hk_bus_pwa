@@ -29,7 +29,7 @@ export default function BottomNav() {
               end={end}
               className={({ isActive }) =>
                 [
-                  'flex flex-col items-center gap-0.5 rounded-full py-2 text-[11px] transition',
+                  'flex flex-col items-center gap-0.5 rounded-full py-2 text-xs transition',
                   isActive
                     ? 'bg-gradient-to-r from-sky-500 to-indigo-500 font-extrabold text-white shadow-sm'
                     : 'font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100',

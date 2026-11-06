@@ -266,7 +266,7 @@ export default function Nearby() {
 
       {/* 位置錯誤（例如拒絕授權的 iOS 提示）以單行提示顯示，不佔用大卡片 */}
       {(locationError || etaError) && (
-        <p className="flex items-start gap-1 px-1 text-[11px] text-amber-600 dark:text-amber-400">
+        <p className="flex items-start gap-1 px-1 text-xs text-amber-600 dark:text-amber-400">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
           <span>{locationError || etaError}</span>
         </p>
@@ -313,7 +313,7 @@ export default function Nearby() {
         </div>
       )}
 
-      <footer className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pb-2 text-center text-[10px] leading-relaxed text-slate-400 dark:text-slate-500">
+      <footer className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 pb-2 text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500">
         <Star className="h-3 w-3" aria-hidden="true" />
         <span>{t('nearby.source')}</span>
         {etaUpdatedAt && (

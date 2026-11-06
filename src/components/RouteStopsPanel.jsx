@@ -184,7 +184,7 @@ export default function RouteStopsPanel({
                   : t('direction.outbound')}
               </span>
             </p>
-            <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500 dark:text-slate-400">
               <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
               <span className="truncate">
                 {pickLang(selected.orig, selected.origEn)} →{' '}

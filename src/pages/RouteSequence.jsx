@@ -68,18 +68,18 @@ function findMatchingStop(stops, target) {
   }
 
   const { lat, lng } = target ?? {}
+  let closestStop = null
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    let best = null
     let bestDistance = Number.POSITIVE_INFINITY
     for (const stop of stops) {
       if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) continue
       const distance = distanceInMeters({ lat, lng }, { lat: stop.lat, lng: stop.lng })
       if (distance < bestDistance) {
         bestDistance = distance
-        best = stop
+        closestStop = stop
       }
     }
-    if (best && bestDistance <= SAME_STATION_RADIUS) return best
+    if (closestStop && bestDistance <= SAME_STATION_RADIUS) return closestStop
   }
 
   if (name.length >= 4) {
@@ -89,6 +89,8 @@ function findMatchingStop(stops, target) {
     })
     if (loose.length === 1) return loose[0]
   }
+
+  if (closestStop) return closestStop
 
   return null
 }
@@ -342,7 +344,7 @@ function StopEtaPanel({
           <div className="skeleton h-11" />
         </div>
       ) : error ? (
-        <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
           <span className="min-w-0 flex-1">{error}</span>
           <button
             type="button"
@@ -364,14 +366,14 @@ function StopEtaPanel({
             showDestination={showDestination}
           />
           {etas.length === 0 && (
-            <p className="mt-1.5 px-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="mt-1.5 px-1 text-xs text-slate-500 dark:text-slate-400">
               {t('route.noEta')}
             </p>
           )}
         </>
       )}
 
-      <div className="mt-1.5 flex items-center justify-between gap-2 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+      <div className="mt-1.5 flex items-center justify-between gap-2 px-0.5 text-xs text-slate-400 dark:text-slate-500">
         <span>
           {updatedAt
             ? t('route.updated', { time: formatClock(updatedAt) })
@@ -436,6 +438,10 @@ export default function RouteSequence() {
   const routeSeq = searchParams.get('routeSeq') ?? ''
   const origParam = searchParams.get('orig') ?? ''
   const destParam = searchParams.get('dest') ?? ''
+  const latParam = searchParams.get('lat')
+  const lngParam = searchParams.get('lng')
+  const coordLat = latParam != null && latParam !== '' ? Number(latParam) : undefined
+  const coordLng = lngParam != null && lngParam !== '' ? Number(lngParam) : undefined
   const directionValue = direction === 'inbound' ? 'inbound' : 'outbound'
   const isGmb = operator === 'GMB'
   const isGmbMissingMeta = isGmb && (!routeId || !routeSeq)
@@ -476,10 +482,10 @@ export default function RouteSequence() {
 
   // 站序載入完成時要用「當下」的 URL 參數找回來源站；以 ref 保存可避免把 stop／name
   // 變成站序請求的依賴（否則每次點站點更新 URL 都會重新抓一次全線站序）。
-  const urlParamsRef = useRef({ nameParam: '', highlightedIds: new Set() })
+  const urlParamsRef = useRef({ nameParam: '', highlightedIds: new Set(), lat: undefined, lng: undefined })
   useEffect(() => {
-    urlParamsRef.current = { nameParam, highlightedIds }
-  }, [nameParam, highlightedIds])
+    urlParamsRef.current = { nameParam, highlightedIds, lat: coordLat, lng: coordLng }
+  }, [nameParam, highlightedIds, coordLat, coordLng])
 
   // 取得全線站序；小巴缺少 routeId/routeSeq 時直接顯示可理解的錯誤
   useEffect(() => {
@@ -534,8 +540,8 @@ export default function RouteSequence() {
     if (stops.length === 0) return null
     const byId = stops.find((stop) => highlightedIds.has(stop.id))
     if (byId) return byId
-    return findMatchingStop(stops, { name: nameParam })
-  }, [stops, highlightedIds, nameParam])
+    return findMatchingStop(stops, { name: nameParam, lat: coordLat, lng: coordLng })
+  }, [stops, highlightedIds, nameParam, coordLat, coordLng])
 
   const activeStopId = activeStop?.id ?? null
 
@@ -811,6 +817,13 @@ export default function RouteSequence() {
 
       // 反向站序的站點 ID 通常不同：先抓反向站序，以站名／座標找回同一站，
       // 比對結果寫回 URL 的 stop，重新整理或分享後仍可還原高亮與展開。
+      const currentStop =
+        stops.find((s) => s.id === expandedStopId) ?? activeStop ?? stops[0]
+      const currentStopName =
+        currentStop?.nameTc || currentStop?.nameEn || nameParam
+      const currentLat = currentStop?.lat
+      const currentLng = currentStop?.lng
+
       let matchedStop = null
       try {
         const reverseStops = await getRouteStops({
@@ -822,9 +835,9 @@ export default function RouteSequence() {
           routeSeq: target.routeSeq,
         })
         matchedStop = findMatchingStop(reverseStops, {
-          name: activeStop?.nameTc || activeStop?.nameEn || nameParam,
-          lat: activeStop?.lat,
-          lng: activeStop?.lng,
+          name: currentStopName,
+          lat: currentLat,
+          lng: currentLng,
         })
       } catch {
         // 反向站序暫時載入失敗：仍切換方向，由頁面顯示錯誤與重試
@@ -833,8 +846,12 @@ export default function RouteSequence() {
       const next = new URLSearchParams()
       if (matchedStop?.id) next.set('stop', matchedStop.id)
       const stopName =
-        matchedStop?.nameTc || matchedStop?.nameEn || activeStop?.nameTc || activeStop?.nameEn || nameParam
+        matchedStop?.nameTc || matchedStop?.nameEn || currentStopName
       if (stopName) next.set('name', stopName)
+      if (Number.isFinite(currentLat) && Number.isFinite(currentLng)) {
+        next.set('lat', String(currentLat))
+        next.set('lng', String(currentLng))
+      }
       if (target.serviceType) next.set('serviceType', target.serviceType)
       if (target.routeId != null) next.set('routeId', target.routeId)
       if (target.routeSeq != null) next.set('routeSeq', target.routeSeq)
@@ -856,6 +873,8 @@ export default function RouteSequence() {
     }
   }, [
     activeStop,
+    expandedStopId,
+    stops,
     directionValue,
     headerDest,
     headerOrig,
@@ -920,12 +939,12 @@ export default function RouteSequence() {
                   {directionLabel(directionValue, t)}
                 </span>
                 {stopsStatus === 'ready' && stops.length > 0 && (
-                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     · {t('common.stops', { n: stops.length })}
                   </span>
                 )}
               </p>
-              <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500 dark:text-slate-400">
                 <RouteIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
                 <span className="truncate">
                   {headerOrig || t('route.origin')} → {headerDest || t('route.destination')}
@@ -935,7 +954,7 @@ export default function RouteSequence() {
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-1 truncate text-[10px] text-slate-400 dark:text-slate-500">
+            <span className="flex min-w-0 items-center gap-1 truncate text-xs text-slate-400 dark:text-slate-500">
               <RefreshCw className="h-3 w-3 shrink-0" aria-hidden="true" />
               {t('route.refreshNote')}
             </span>
@@ -977,7 +996,7 @@ export default function RouteSequence() {
         <div className="mx-auto w-full max-w-lg shrink-0 px-3 pt-2">
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-xl bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+            className="flex items-start gap-2 rounded-xl bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
           >
             <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">{reverseError}</span>
@@ -1033,7 +1052,7 @@ export default function RouteSequence() {
             </div>
 
             <div className="flex shrink-0 items-center justify-between gap-2 px-1">
-              <span className="flex min-w-0 items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+              <span className="flex min-w-0 items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
                 <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
                 <span className="truncate">
                   {t('route.stopsLabel', { n: stops.length })}
@@ -1111,7 +1130,7 @@ export default function RouteSequence() {
                         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-2 pl-2 pr-0.5 text-left"
                       >
                         <span
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold tabular-nums ${
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${
                             isExpanded || isSource
                               ? 'bg-sky-600 text-white dark:bg-sky-500'
                               : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
@@ -1129,10 +1148,10 @@ export default function RouteSequence() {
                           >
                             {pickLang(stop.nameTc, stop.nameEn) || stop.id}
                           </span>
-                          <span className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+                          <span className="mt-0.5 flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
                             {isExpanded ? t('route.next3') : t('route.viewNext3')}
                             {isSource && (
-                              <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
+                              <span className="chip bg-sky-600 px-1.5 py-0 text-[11px] text-white dark:bg-sky-500">
                                 {t('route.current')}
                               </span>
                             )}

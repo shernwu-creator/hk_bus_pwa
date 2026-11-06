@@ -75,7 +75,7 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, hint, cl
     <div
       className={`animate-fade-in rounded-[18px] px-2.5 py-2 shadow-sm ring-1 ring-inset backdrop-blur-xl ${tone} ${className}`}
     >
-      <p className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold leading-4">
+      <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold leading-4">
         {hasRealtime ? (
           <Timer className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         ) : (
@@ -96,7 +96,7 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, hint, cl
         )}
       </p>
 
-      <p className="mt-1 text-[10px] leading-relaxed opacity-80">
+      <p className="mt-1 text-xs leading-relaxed opacity-80">
         {noDownstream
           ? t('plan.noDownstream')
           : hasRealtime

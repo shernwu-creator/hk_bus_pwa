@@ -90,7 +90,7 @@ function LanguageToggle() {
             type="button"
             onClick={() => setLang(option.value)}
             aria-pressed={active}
-            className={`flex h-7 min-w-8 items-center justify-center rounded-full px-2 text-[11px] leading-4 transition ${
+            className={`flex h-7 min-w-8 items-center justify-center rounded-full px-2 text-xs leading-4 transition ${
               active
                 ? 'bg-gradient-to-r from-sky-500 to-indigo-500 font-bold text-white shadow-sm'
                 : 'font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
@@ -138,7 +138,7 @@ function Header() {
           <h1 className="truncate text-sm font-bold leading-tight text-slate-900 dark:text-white">
             {t('app.title')}
           </h1>
-          <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400">
             {t('app.subtitle')}
           </p>
         </div>

@@ -163,7 +163,7 @@ export default function StopSection({
             <span className="block truncate text-xl font-extrabold leading-snug text-slate-900 dark:text-slate-100">
               {stopName}
             </span>
-            <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
               {operators.map((operator) => (
                 <OperatorBadge key={operator} operator={operator} />
               ))}
@@ -181,7 +181,7 @@ export default function StopSection({
                 {platformCodes.map((code) => (
                   <span
                     key={code}
-                    className="chip bg-slate-100 px-1.5 py-0 text-[10px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                    className="chip bg-slate-100 px-1.5 py-0 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                   >
                     {code}
                   </span>
@@ -191,7 +191,7 @@ export default function StopSection({
             {(planBaseLabel || planChips) && (
               <span className="mt-1 flex flex-wrap items-center gap-1">
                 {planBaseLabel ? (
-                  <span className="chip bg-sky-600 px-1.5 py-0 text-[9px] text-white dark:bg-sky-500">
+                  <span className="chip bg-sky-600 px-1.5 py-0 text-[11px] text-white dark:bg-sky-500">
                     {planBaseLabel}
                   </span>
                 ) : (
@@ -235,7 +235,7 @@ export default function StopSection({
         <div id={bodyId} className="space-y-2 border-t border-white/60 px-3 py-2.5 dark:border-slate-700/60">
           {multiStop && onRemoveStop && (
             <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+              <span className="text-xs text-slate-400 dark:text-slate-500">
                 {t('stop.groupTitle')}
               </span>
               {members.map((member, index) => {
@@ -272,7 +272,7 @@ export default function StopSection({
           )}
 
           {!loading && group.warning && (
-            <p className="rounded-lg bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            <p className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
               {group.warning}
             </p>
           )}

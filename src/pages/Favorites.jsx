@@ -310,7 +310,7 @@ function FavoriteRouteCard({ favorite, lat, lng, hasLocation, onRemove }) {
   let nearestBlock
   if (!hasLocation) {
     nearestBlock = (
-      <p className="rounded-xl bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+      <p className="rounded-xl bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
         {t('saved.routeNoLocation')}
       </p>
     )
@@ -322,13 +322,13 @@ function FavoriteRouteCard({ favorite, lat, lng, hasLocation, onRemove }) {
     })
     nearestBlock = (
       <div className="rounded-xl bg-slate-50 px-2.5 py-2 dark:bg-slate-800/60">
-        <p className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+        <p className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
           <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">
             {t('saved.routeNearest')} · {pickLang(nearest.nameTc, nearest.nameEn)} ·{' '}
             {formatDistance(nearest.distance, lang)}
           </span>
-          <span className="chip shrink-0 bg-sky-100 px-1.5 py-0 text-[9px] text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+          <span className="chip shrink-0 bg-sky-100 px-1.5 py-0 text-[11px] text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
             {t('route.next3')}
           </span>
         </p>
@@ -345,7 +345,7 @@ function FavoriteRouteCard({ favorite, lat, lng, hasLocation, onRemove }) {
           )}
         </p>
         {etaUpdatedAt && (
-          <p className="mt-0.5 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+          <p className="mt-0.5 px-0.5 text-xs text-slate-400 dark:text-slate-500">
             {t('nearby.etaData', { time: formatClock(etaUpdatedAt) })}
           </p>
         )}
@@ -353,7 +353,7 @@ function FavoriteRouteCard({ favorite, lat, lng, hasLocation, onRemove }) {
     )
   } else if (stopsError) {
     nearestBlock = (
-      <div className="flex items-center gap-2 rounded-xl bg-rose-50 px-2.5 py-2 text-[11px] text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
+      <div className="flex items-center gap-2 rounded-xl bg-rose-50 px-2.5 py-2 text-xs text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
         <span className="min-w-0 flex-1">{stopsError}</span>
         <button
           type="button"
@@ -376,7 +376,7 @@ function FavoriteRouteCard({ favorite, lat, lng, hasLocation, onRemove }) {
     )
   } else {
     nearestBlock = (
-      <p className="rounded-xl bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+      <p className="rounded-xl bg-slate-50 px-2.5 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
         {stops.length === 0 ? t('saved.routeNoStops') : t('saved.routeNoCoords')}
       </p>
     )
@@ -626,13 +626,13 @@ export default function Favorites() {
                   ? t('saved.grouped', { n: groups.length })
                   : ''}
               </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('saved.note')}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{t('saved.note')}</p>
             </div>
             {favorites.length > 0 && (
               <button
                 type="button"
                 onClick={handleClearStops}
-                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('saved.clear')}
@@ -641,7 +641,7 @@ export default function Favorites() {
           </section>
 
           {etaError && (
-            <p className="px-1 text-[11px] text-amber-600 dark:text-amber-400">{etaError}</p>
+            <p className="px-1 text-xs text-amber-600 dark:text-amber-400">{etaError}</p>
           )}
 
           {favorites.length === 0 ? (
@@ -678,7 +678,7 @@ export default function Favorites() {
           )}
 
           {favorites.length > 0 && (
-            <p className="px-1 pb-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
+            <p className="px-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500">
               {t('saved.latest', { time: formatDateTime(favorites[0].savedAt) })}
             </p>
           )}
@@ -693,7 +693,7 @@ export default function Favorites() {
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {t('saved.routesTitle', { n: favoriteRoutes.length })}
               </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 {t('saved.routesNote')}
               </p>
             </div>
@@ -701,7 +701,7 @@ export default function Favorites() {
               <button
                 type="button"
                 onClick={handleClearRoutes}
-                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('saved.clear')}
@@ -738,7 +738,7 @@ export default function Favorites() {
           )}
 
           {favoriteRoutes.length > 0 && (
-            <p className="px-1 pb-2 text-center text-[10px] text-slate-400 dark:text-slate-500">
+            <p className="px-1 pb-2 text-center text-xs text-slate-400 dark:text-slate-500">
               {t('saved.latest', { time: formatDateTime(favoriteRoutes[0].savedAt) })}
             </p>
           )}

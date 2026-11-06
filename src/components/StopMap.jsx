@@ -35,7 +35,7 @@ function escapeHtml(value) {
 function createStopIcon({ name, color, size, showLabel, isDark }) {
   const pin = `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.45)"></span>`
   const label = showLabel
-    ? `<span style="position:absolute;left:${size + 6}px;top:50%;transform:translateY(-50%);white-space:nowrap;border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:600;line-height:1.5;background:${
+    ? `<span style="position:absolute;left:${size + 6}px;top:50%;transform:translateY(-50%);white-space:nowrap;border-radius:9999px;padding:2px 8px;font-size:12px;font-weight:600;line-height:1.5;background:${
         isDark ? 'rgba(15,23,42,.92)' : 'rgba(255,255,255,.96)'
       };color:${isDark ? '#f8fafc' : '#0f172a'};box-shadow:0 2px 8px rgba(15,23,42,.25)">${escapeHtml(name)}</span>`
     : ''
@@ -435,7 +435,7 @@ export default function StopMap({
             onClick={onClearFocus}
             aria-label={t('map.showRoute')}
             title={t('map.showRoute')}
-            className="absolute left-2 top-2 z-[1000] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
+            className="absolute left-2 top-2 z-[1000] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-xs font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
           >
             <span aria-hidden="true">◎</span>
             {t('map.showRoute')}
@@ -449,7 +449,7 @@ export default function StopMap({
             onClick={onToggleCollapse}
             aria-label={t('map.expand')}
             title={t('map.expand')}
-            className="absolute bottom-2 left-2 z-[400] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
+            className="absolute bottom-2 left-2 z-[400] inline-flex items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-xs font-bold text-sky-700 shadow-sm backdrop-blur-md transition hover:bg-white dark:bg-slate-800/90 dark:text-sky-300 dark:hover:bg-slate-800"
           >
             {t('map.expand')} ▼
           </button>
@@ -459,7 +459,7 @@ export default function StopMap({
         {!routeMode && (
         <div className="absolute inset-x-2.5 bottom-2 z-[400] flex items-center gap-1.5 rounded-full border border-white/70 bg-white/90 py-1 pl-3 pr-1 shadow-sm backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-800/90">
           <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-[11px] leading-4">
+          <span className="min-w-0 flex-1 truncate text-xs leading-4">
             <span className="font-semibold text-slate-700 dark:text-slate-100">
               {statusText}
             </span>
@@ -473,7 +473,7 @@ export default function StopMap({
               onClick={onToggleCollapse}
               aria-label={t('map.expand')}
               title={t('map.expand')}
-              className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700 transition hover:bg-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:hover:bg-sky-500/30"
+              className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-700 transition hover:bg-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:hover:bg-sky-500/30"
             >
               {t('map.expand')} ▼
             </button>

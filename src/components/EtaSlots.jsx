@@ -60,7 +60,7 @@ export function EtaSlot({
               {minutes}
             </span>
             <span
-              className={`text-[10px] font-semibold ${
+              className={`text-xs font-semibold ${
                 isUrgent ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'
               }`}
             >
@@ -69,11 +69,11 @@ export function EtaSlot({
           </>
         )}
       </span>
-      <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+      <span className="mt-1 block truncate text-xs text-slate-500 dark:text-slate-400">
         {eta?.time ? formatClock(eta.time) : t('eta.noService')}
       </span>
       {selected && (
-        <span className="mt-0.5 block text-[9px] font-bold leading-none text-sky-600 dark:text-sky-300">
+        <span className="mt-0.5 block text-[11px] font-bold leading-none text-sky-600 dark:text-sky-300">
           {t('eta.base')}
         </span>
       )}

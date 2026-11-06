@@ -15,7 +15,7 @@ export default function OperatorBadge({ operator, className = '' }) {
   if (!info) return null
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold leading-4 ${
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-extrabold leading-4 ${
         BADGE_STYLES[operator] ?? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
       } ${className}`}
       title={info.fullName}

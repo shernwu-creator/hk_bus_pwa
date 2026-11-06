@@ -99,7 +99,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null, fea
             </span>
           </span>
 
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
             <span>
               {t('bus.fare')}{' '}
               <span className="font-semibold text-slate-700 dark:text-slate-200">
@@ -129,7 +129,7 @@ export default function BusCard({ entry, onClick, destinationVariant = null, fea
       </span>
 
       {onClick && (
-        <span className="mt-1.5 flex items-center justify-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+        <span className="mt-1.5 flex items-center justify-center gap-1 text-xs font-semibold text-slate-400 dark:text-slate-500">
           <ChevronRight className="h-3 w-3" aria-hidden="true" />
           {t('bus.viewRoute')}
         </span>
