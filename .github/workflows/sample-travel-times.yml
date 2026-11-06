@@ -1,0 +1,41 @@
+name: Sample Route Travel Times
+
+on:
+  # 支援外部（例如 Google Apps Script）透過 repository_dispatch 觸發
+  repository_dispatch:
+    types: [sample_travel_times]
+
+  # 支援在 GitHub 網頁 Actions 頁籤手動點擊按鈕觸發
+  workflow_dispatch:
+
+jobs:
+  sample-travel-times:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run sampling script
+        run: node scripts/sample-travel-times.mjs
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/data/travelTimes.json
+          if git diff --staged --quiet; then
+            echo "🚌 歷史耗時無變動，無需 Commit。"
+          else
+            git commit -m "chore(data): 自動更新官方全線歷史耗時採樣"
+            git push
+            echo "✅ 歷史耗時數據庫已成功 Push 至倉庫！"
+          fi

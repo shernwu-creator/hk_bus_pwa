@@ -265,6 +265,10 @@ const STRINGS = {
     '此站已是路線終點，沒有後續站點可推算。',
     'This is the terminus; there are no downstream stops to estimate.',
   ],
+  'plan.historicalBanner': [
+    '（已融合官方全線歷史耗時）',
+    '(Using official historical route travel times)',
+  ],
   'plan.assumption': [
     '以每站約 {dwell} 秒停站、平均 {speed} km/h（直線距離 × {detour} 繞行係數）推算',
     'Assumes ~{dwell}s dwell per stop and {speed} km/h average (straight-line distance × {detour} detour factor)',
@@ -297,6 +301,10 @@ const STRINGS = {
   'plan.chipLiveTitle': [
     '依該站官方實時到站時間推算（推測為同一班車，仍可能有偏差）',
     'Estimated from that stop’s official real-time arrival (assumed same bus; may still vary)',
+  ],
+  'plan.chipHistoryTitle': [
+    '依官方全線歷史耗時推算（比幾何更貼近真實行車時間）',
+    'Estimated from official historical route travel time',
   ],
   'plan.chipEstimateTitle': [
     '依車程推算的預計到達時間，實際仍受路況影響',

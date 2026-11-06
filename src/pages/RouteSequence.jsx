@@ -608,8 +608,11 @@ export default function RouteSequence() {
       baseTime: planBase?.time ?? null,
       liveEtas: liveEtasByStopId,
       now: liveNow,
+      operator,
+      route,
+      direction: directionValue,
     })
-  }, [planEnabled, planBaseStop, planBaseIndex, planBase, stops, liveEtasByStopId, liveNow])
+  }, [planEnabled, planBaseStop, planBaseIndex, planBase, stops, liveEtasByStopId, liveNow, operator, route, directionValue])
 
   // 回報某一站的最新實時 ETA（收合站點時 record 為 null）
   const handleEtasChange = useCallback((stopId, record) => {

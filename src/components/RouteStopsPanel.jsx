@@ -136,8 +136,11 @@ export default function RouteStopsPanel({
       baseTime: base?.time ?? null,
       liveEtas: planEtasByStopId,
       now,
+      operator: selected?.operator,
+      route: selected?.route,
+      direction: selected?.direction,
     })
-  }, [planBaseStop, stops, planEtasByStopId, etaUpdatedAt])
+  }, [planBaseStop, stops, planEtasByStopId, etaUpdatedAt, selected.operator, selected.route, selected.direction])
 
   // 基準站的 ETA 還沒回來（顯示「正在取得基準班次」而不是「暫無班次」）。
   // 基準站由頁面持續輪詢，即使被收合也會更新，所以不需再檢查目前展開的站點。

@@ -1,4 +1,5 @@
 import { distanceInMeters } from '../services/api.js'
+import historicalTravelData from '../data/travelTimes.json'
 
 /**
  * 車程／預計到達時間推算（類似九巴 App 1933 的「後續各站到達時間」）
@@ -86,6 +87,33 @@ function hasCoordinate(point) {
  * @param {number} [now] 當前時間戳（毫秒）
  * @returns {{speedFactor:number, dwellFactor:number, period:'night'|'morningPeak'|'eveningPeak'|'regular'}}
  */
+/**
+ * 依業者、路線、方向與時段查找官方歷史耗時資料（Stage 2）
+ *
+ * @param {object} data `src/data/travelTimes.json` 數據
+ * @param {string} [operator] 業者代碼（KMB / CTB / GMB）
+ * @param {string} [route] 路線號碼
+ * @param {string} [direction] 'outbound' | 'inbound'
+ * @param {string} [period] 'night' | 'morningPeak' | 'eveningPeak' | 'regular'
+ * @returns {Array<number|null>|null}
+ */
+export function getHistoricalSegments(data, operator, route, direction, period) {
+  if (!data?.routes || !route || !direction) return null
+  const dir = direction === 'inbound' ? 'inbound' : 'outbound'
+  const op = String(operator || '').toUpperCase().trim()
+
+  let routeEntry = data.routes[`${op}:${route}:${dir}`]
+  if (!routeEntry && (op.includes('KMB') || !op)) {
+    routeEntry = data.routes[`KMB:${route}:${dir}`]
+  }
+  if (!routeEntry) {
+    routeEntry = data.routes[`KMB:${route}:${dir}`] || data.routes[`CTB:${route}:${dir}`]
+  }
+
+  if (!routeEntry) return null
+  return routeEntry[period] ?? routeEntry.regular ?? null
+}
+
 export function getTimeOfDayTrafficFactor(now = Date.now()) {
   const date = new Date(now)
   const hour = date.getHours() + date.getMinutes() / 60
@@ -259,6 +287,9 @@ export function buildTravelPlan({
   baseTime = null,
   liveEtas = null,
   now = Date.now(),
+  operator = '',
+  route = '',
+  direction = '',
 } = {}) {
   const byStopId = new Map()
   const safeIndex = Number.isInteger(baseIndex) && baseIndex >= 0 ? baseIndex : -1
@@ -276,12 +307,21 @@ export function buildTravelPlan({
       terminusMinutes: null,
       speedKmh: AVG_BUS_SPEED_KMH,
       dynamicSpeed: false,
+      hasHistorical: false,
     }
   }
 
   const segments = buildSegments(stops)
   const approximate = segments.some((segment) => segment.fallback)
   const traffic = getTimeOfDayTrafficFactor(now)
+  const historicalSegments = getHistoricalSegments(
+    historicalTravelData,
+    operator,
+    route,
+    direction,
+    traffic.period,
+  )
+  const hasHistoricalData = Array.isArray(historicalSegments) && historicalSegments.length > 0
 
   // 即時路況調節比率（由連續 live 站學出「實際純行駛秒數 vs 預期行駛秒數」，預設 1.0）
   let liveTrafficRatio = 1.0
@@ -320,6 +360,10 @@ export function buildTravelPlan({
       baseDwell = DWELL_ARTERIAL_SEC
     }
 
+    // 檢查官方歷史耗時數據庫（Stage 2）
+    const historicalHop = historicalSegments?.[index - 1]
+    const hasHistoricalHop = Number.isFinite(historicalHop) && historicalHop > 0
+
     // 結合時段係數與實時校準比率（限制在安全上下限之間）
     const effectiveSpeedKmh = Math.min(
       DYNAMIC_SPEED_MAX_KMH,
@@ -327,20 +371,33 @@ export function buildTravelPlan({
     )
     const effectiveDwellSec = baseDwell * traffic.dwellFactor
 
-    const driveMinutes = (hopMeters / 1000 / effectiveSpeedKmh) * 60
-    const dwellMinutes = effectiveDwellSec / 60
-    const hopMinutes = driveMinutes + dwellMinutes
+    // 若有歷史採樣耗時（已包含真實停靠與轉彎），直接套用並隨即時路況微調；
+    // 否則退回 Stage 1 路網分級 + 時段加權幾何模型
+    let hopMinutes
+    let defaultSource = 'geometry'
+    if (hasHistoricalHop) {
+      hopMinutes = Math.max(0.5, historicalHop / liveTrafficRatio)
+      defaultSource = 'history'
+    } else {
+      const driveMinutes = (hopMeters / 1000 / effectiveSpeedKmh) * 60
+      const dwellMinutes = effectiveDwellSec / 60
+      hopMinutes = driveMinutes + dwellMinutes
+      defaultSource = 'geometry'
+    }
     const hopMs = Math.max(MIN_HOP_MS, Math.round(hopMinutes * 60000))
 
     // 預測到達 = 上一站到達 + 相鄰路段耗時
     let arrivalMs = previousArrival != null ? previousArrival + hopMs : null
-    let source = 'geometry'
+    let source = defaultSource
     let travelMinutes
 
     if (hasBaseTime && previousArrival != null) {
       metersSinceLastLive += hopMeters
-      expectedDriveSecondsSinceLastLive += (hopMeters / 1000 / (baseSpeed * traffic.speedFactor)) * 3600
-      expectedDwellSecondsSinceLastLive += effectiveDwellSec
+      const baselineHopSec = hasHistoricalHop
+        ? historicalHop * 60
+        : (hopMeters / 1000 / (baseSpeed * traffic.speedFactor)) * 3600 + effectiveDwellSec
+      expectedDriveSecondsSinceLastLive += baselineHopSec
+      expectedDwellSecondsSinceLastLive += hasHistoricalHop ? 0 : effectiveDwellSec
 
       const liveArrival = pickLiveArrival(
         stops[index]?.id != null ? liveEtas?.get(String(stops[index].id)) : undefined,
@@ -360,7 +417,7 @@ export function buildTravelPlan({
       // 被夾回的時間是推算值，不可再標成官方資料。
       if (arrivalMs <= previousArrival) {
         arrivalMs = previousArrival + 60000
-        source = 'geometry'
+        source = defaultSource
       }
 
       // 動態路況比率學習：
@@ -380,7 +437,8 @@ export function buildTravelPlan({
             actualTotalSeconds - expectedDwellSecondsSinceLastLive,
           )
           // 實時速度比率 = 預期行駛秒數 / 實際行駛秒數（>1 表示比平時快，<1 表示塞車）
-          const rawRatio = expectedDriveSecondsSinceLastLive / actualDriveSeconds
+          const targetSeconds = hasHistoricalHop ? actualTotalSeconds : actualDriveSeconds
+          const rawRatio = expectedDriveSecondsSinceLastLive / targetSeconds
           if (Number.isFinite(rawRatio)) {
             // 安全限制在 0.4x（嚴重塞車）到 1.6x（極度順暢）之間
             liveTrafficRatio = Math.min(1.6, Math.max(0.4, rawRatio))
@@ -447,5 +505,6 @@ export function buildTravelPlan({
     terminusMinutes: entries.length > 0 ? entries[entries.length - 1].travelMinutes : null,
     speedKmh: weightedSpeedKmh,
     dynamicSpeed,
+    hasHistorical: hasHistoricalData,
   }
 }

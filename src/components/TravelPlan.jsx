@@ -102,11 +102,13 @@ export function TravelPlanBanner({ plan, etaLabel, baseLoading = false, hint, cl
           : hasRealtime
             ? (
                 <>
-                  {t('plan.assumption', {
-                    dwell: DWELL_SECONDS_PER_STOP,
-                    speed: speedKmh,
-                    detour: ROAD_DETOUR_FACTOR,
-                  })}
+                  {plan.hasHistorical
+                    ? t('plan.historicalBanner')
+                    : t('plan.assumption', {
+                        dwell: DWELL_SECONDS_PER_STOP,
+                        speed: speedKmh,
+                        detour: ROAD_DETOUR_FACTOR,
+                      })}
                   {plan.terminusMinutes != null &&
                     t('plan.terminusMinutes', { n: plan.terminusMinutes })}
                   {hint ?? t('plan.clickHint')}
@@ -156,7 +158,11 @@ export function TravelPlanChips({ entry, className = '' }) {
       </span>
       <span
         title={
-          entry.source === 'live' ? t('plan.chipLiveTitle') : t('plan.chipEstimateTitle')
+          entry.source === 'live'
+            ? t('plan.chipLiveTitle')
+            : entry.source === 'history'
+              ? t('plan.chipHistoryTitle')
+              : t('plan.chipEstimateTitle')
         }
         className="chip bg-emerald-50 px-1.5 py-0 tabular-nums text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
       >

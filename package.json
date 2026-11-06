@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "sync:data": "node scripts/sync-data.mjs",
     "sync:fares": "node scripts/sync-data.mjs --fares-only",
+    "sample:travel": "node scripts/sample-travel-times.mjs",
     "generate:icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
