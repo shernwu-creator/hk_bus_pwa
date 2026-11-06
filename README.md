@@ -151,7 +151,7 @@ src/
 ├─ index.css                 # Tailwind 進入點與共用樣式（.card / .chip；body 漸層背景）
 ├─ pages/
 │  ├─ Nearby.jsx             # 附近站點：定位 → 500 公尺內篩選 → 展開查 ETA
-│  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 置頂全線軌跡地圖 → 站序 → ETA
+│  ├─ Search.jsx             # 路線搜尋：路線 → 方向 → 置頂全線軌跡地圖 → 站序（手風琴單一展開）→ ETA；置底自訂虛擬鍵盤
 │  ├─ Favorites.jsx          # 收藏頁：毛玻璃雙分頁（收藏站點／收藏路線）；站點同名分組、路線顯示最近候車站 ETA
 │  └─ RouteSequence.jsx      # 路線站序頁（原視窗導覽）：置頂全線軌跡地圖、全線站序、各站三班 ETA、反轉方向（URL 可分享）
 ├─ components/
@@ -160,8 +160,10 @@ src/
 │  ├─ StopSection.jsx        # 可展開的站點區塊（收藏星星、站序徽章、各路線 ETA；路線卡依剩餘距離長途優先排序、終點站與已收班最後）
 │  ├─ EtaSlots.jsx           # 最近三班車的 ETA 格（BusCard 與站序頁共用；可切換成推算基準按鈕）
 │  ├─ TravelPlan.jsx         # 站序推算：切換鈕、基準說明列、「+X 分／HH:mm 到達」膠囊
-│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（返回列與推算切換鈕固定在 Header／置頂地圖下方）
-│  ├─ SearchBar.jsx / OperatorBadge.jsx
+│  ├─ RouteStopsPanel.jsx    # 搜尋頁的站序清單（手風琴單一展開；返回列與推算切換鈕固定在 Header／置頂地圖下方；推算基準站由頁面固定）
+│  ├─ SearchBar.jsx          # 路線搜尋框（readOnly＋inputMode=none，不會喚起原生手機鍵盤；點擊開啟自訂鍵盤）
+│  ├─ VirtualKeyboard.jsx    # 搜尋頁置底自訂虛擬鍵盤（3×4 數字／清除／退格＋雙欄可捲動常用英文字母）
+│  ├─ OperatorBadge.jsx
 │  ├─ BottomNav.jsx          # 底部懸浮島 Dock（毛玻璃膠囊、選中 Tab 藍紫漸層）
 │  └─ StateViews.jsx         # Skeleton / ErrorState / EmptyState
 ├─ hooks/
@@ -313,7 +315,12 @@ scripts/
 - **站序頁**：開啟推算時會自動展開基準站，banner 標示「基準站 · 第 N 班 · `HH:mm`」；
   點擊任一站展開面板中的第 1～3 班 ETA 格，即可把「那一站的這一班」切換成推算基準
   （`EtaSlot` 在推算模式下才變成按鈕）。基準站列顯示「推算基準」chip，其後每一站顯示 `+X 分` 與 `HH:mm 到達`。
-- **搜尋頁站序面板**：以「已展開且取得實時 ETA 的最前面站點」為基準（都沒有時退回第一站做純車程推算）；
+- **搜尋頁站序面板**：推算狀態（`planEnabled`／`planBaseStopId`）由 `Search` 頁面持有，**基準站在開啟推算時固定**：
+  優先採用當下展開的站點，沒有展開則由路線第一站起算；之後展開／收合任何站點都不會改變基準，
+  因此 ETA 不會因為「多開或少開一站」而跳動。面板只以基準站的實時 ETA 作時間原點，其餘各站一律逐段幾何推算，
+  不再把其他展開站點的 ETA 混進同一班車的配對；基準站即使被收合也會保留在 `useBusData()` 的輪詢清單中，
+  確保基準班次持續更新、不會突然退回純車程。要改用其他站推算時，先展開該站，再關閉並重新開啟推算即可
+  （banner 會提示此操作）。
   `useBusData()` 的 `updatedAt` 會傳入面板，用來判斷 ETA 是否新鮮（不使用已過期的背景資料）。
   路線資訊列（含「返回路線搜尋」）與「推算各站到站時間」切換鈕會 **sticky 固定在主殼 Header 下方**
   （`top-[var(--app-header-h)]`；Header 高度由 `App.jsx` 量測後寫入 CSS 變數），站序很長時不論滑到哪裡
@@ -487,6 +494,21 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
   展開／收合鈕為 28px 圓形玻璃按鈕（`h-7 w-7 rounded-full`）。
 - Header／BottomNav／置頂地圖沿用毛玻璃膠囊；頁面背景是冰藍（日）／午夜藍紫（夜）漸層＋環境光暈。
 
+### 6.13 搜尋頁自訂虛擬鍵盤（VirtualKeyboard）
+
+手機原生鍵盤在輸入香港巴士路線號碼時體驗不佳（注音／拼音候選字、鍵盤高度與畫面跳動），搜尋頁改用置底的自訂鍵盤：
+
+- `SearchBar` 的 `<input>` 設為 `readOnly`＋`inputMode="none"`，點擊只會 focus、**不會喚起系統鍵盤**；
+  `onFocus`／`onClick` 呼叫 `onActivate` 打開自訂鍵盤，輸入值仍由 `Search` 的 `query` 狀態控制。
+- 鍵盤是 `src/components/VirtualKeyboard.jsx`，固定在畫面底部（`fixed`、毛玻璃膠囊、`z-40`，高於底部 Dock），
+  只在搜尋清單檢視掛載；選擇路線或按右上「收起鍵盤」後即卸載，回到一般版面。
+- **左側**：3×4 數字鍵——`1`–`9`、`X`（清除全部）、`0`、退格（Backspace）。
+- **右側**：香港巴士路線常用字母（A、B、C、D、E、H、K、M、N、P、R、S、T、X、Y），
+  以雙欄列表呈現，超出高度時可上下滑動。
+- 輸入上限 8 個字元，按鍵即時寫回 `query` 並套用 `matchesQuery()` 篩選，不需要按 Enter；
+  鍵盤打開時頁面底部預留 256px，最後幾筆結果仍可捲到鍵盤上方。
+- 鍵盤只提供英數字：搜尋頁不再支援以中文目的地關鍵字搜尋（原本可用原生輸入法輸入），路線號碼搜尋不受影響。
+
 ---
 
 ## 7. PWA 設定
@@ -536,9 +558,12 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 - 只支援九巴、城巴與專線小巴，未包含龍運、新大嶼山巴士、港鐵巴士與居民巴士。
 - **「各站到站時間」是推算而非官方資料**：`src/utils/travelPlan.js` 以直線距離 × 1.3 繞行係數、
   19 km/h 平均車速與每站 35 秒停靠估算，實際受路況、燈位與上落客人數影響，長距離與繁忙時段誤差會放大。
-  只有「已展開站點」的實時 ETA 會被採用（靠進站順序推測同一班車；班距很小的路線、官方漏班或前車嚴重
-  誤點時仍可能配到相鄰班次），其餘仍是幾何估算；小巴站點索引偶有缺少座標，會以平均站距代替
+  站序頁只採用「已展開站點」的實時 ETA 校準（靠進站順序推測同一班車；班距很小的路線、官方漏班或前車嚴重
+  誤點時仍可能配到相鄰班次）；搜尋頁則只採用「開啟推算時固定下來的基準站」ETA 作時間原點，
+  其餘各站逐段幾何推算，確保展開／收合站點不會改變推算結果。小巴站點索引偶有缺少座標，會以平均站距代替
   （banner 會標示），數值僅供參考，請以官方 App／站牌顯示為準。
+- **搜尋頁自訂鍵盤只支援英數**：為避免原生手機鍵盤彈出，`SearchBar` 的輸入框是 `readOnly`，只能透過
+  置底的 `VirtualKeyboard` 輸入數字與常用路線字母；搜尋頁因此不再支援以中文目的地關鍵字搜尋（路線號碼搜尋不受影響，見 6.13）。
 
 ---
 
@@ -603,3 +628,6 @@ iOS Safari 不支援 `navigator.permissions.query({ name: 'geolocation' })`，�
 | **後續到站推算要更貼近實際班次** | `travelPlan.js` 改為 **Sequential ETA Matching + Dynamic Speed**：逐站以「上一站到達 + 相鄰路段耗時」推算，實時 ETA 只在「上一站 + 最短 1 分鐘 ~ 上一站 + 相鄰耗時 + 10 分鐘」區間內配對；連續兩個 live 站以實際里程／時間差更新 `currentSpeedKmh`（限制 5–65 km/h），缺少 ETA 的站改用最新車速 fallback。`buildTravelPlan` 額外回傳 `speedKmh`／`dynamicSpeed`，banner 顯示目前車速；移除舊有 4～15 分鐘比例容錯與錨點累計邏輯。 |
 | **站點列表手風琴與自動貼合** | `RouteSequence` 改為單一 `expandedStopId`（預設來源站，沒有則第一站；點任一站只展開該站）；`StopSection` 全面改由 `isExpanded`/`onToggle` props 控制，展開時等 450ms（地圖高度 transition）後 `scrollIntoView({ block: 'start', behavior: 'smooth' })`，外層加上 `scroll-mt-[calc(var(--app-header-h)+226px+var(--stop-scroll-extra))]`；`Nearby`／`Search` 展開站點時重置地圖並暫停縮小 1.6 秒，`Favorites` 用 `scroll-mt-24`，貼合完成後往下滑仍會正常縮小。 |
 
+| **展開不同站點會令後續 ETA 數值飄移** | 搜尋頁把推算狀態提升到 `Search`（`planEnabled`／`planBaseStopId`），基準站在開啟推算時固定；`RouteStopsPanel` 只以基準站的實時 ETA 作時間原點，其餘各站逐段幾何推算，不再把其他展開站點的 ETA 混入同一班車配對。基準站保留在 `useBusData()` 輪詢清單中，收合後仍持續更新。展開／收合任何站點都不再改變推算輸入，消除累加／重複計算誤差。 |
+| **搜尋頁站點要手風琴式展開** | `Search` 以 `activeStopId` 取代 `expandedIds`(Set)：同一時間只展開一個站點，點開新站點時自動收合上一站並同步聚焦地圖；`RouteStopsPanel` 改收 `activeStopId`，只顯示該站的展開內容與載入骨架。 |
+| **搜尋頁需要自訂虛擬鍵盤** | 新增 `VirtualKeyboard.jsx`（置底毛玻璃卡）：左側 3×4 數字鍵（1–9／清除全部／0／退格），右側雙欄可上下滑動的常用路線字母（A–Y 共 15 個）；`SearchBar` 的輸入框改為 `readOnly`＋`inputMode="none"` 阻止原生鍵盤彈出，點擊輸入框或鍵盤圖示打開鍵盤，按鍵即時寫回 `query`（上限 8 字元），鍵盤打開時頁面底部預留空間避免遮擋搜尋結果。 |

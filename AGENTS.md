@@ -112,11 +112,18 @@ src/
 - **站序到站推算**：`src/utils/travelPlan.js` 以 Sequential Matching 逐站推算
   （`上一站到達 + 相鄰路段耗時`），實時 ETA 只在 sequential 容錯區間配對；連續兩個 live 站會用
   實際里程／時間差更新 `currentSpeedKmh` 作後續 fallback。不要改回「靜態 19 km/h 由基準站一次過加總」。
-- **站點展開行為**：附近／搜尋／收藏頁的站點卡可**同時展開多個**（用 Set 管理，避免版面跳動）；
-  **站序頁（`RouteSequence`）改為手風琴**：同一時間只展開一站（`expandedStopId`），初始預設來源站、
+  **搜尋頁的推算狀態由 `Search` 持有**（`planEnabled`／`planBaseStopId`）：基準站在開啟推算時固定，
+  只採用該站的 ETA 作時間原點，其餘站逐段幾何推算；基準站要留在 `useBusData()` 的輪詢清單（收合後仍更新）。
+  不要改回「以目前展開站點挑基準」或把其他展開站點的 ETA 混進推算，否則展開站點會令後續 ETA 飄移。
+- **站點展開行為**：附近（`Nearby`）與收藏（`Favorites`）頁的站點卡可**同時展開多個**（用 Set 管理，避免版面跳動）；
+  **站序頁（`RouteSequence`）與搜尋頁站序面板（`Search`／`RouteStopsPanel`）改為手風琴**：同一時間只展開一站
+  （`expandedStopId`／`activeStopId`）。搜尋頁初始不展開、點新站會自動收合上一站；站序頁初始預設來源站、
   沒有來源站則第一站。展開時呼叫 `resetCollapse()` 並以 `scrollIntoView({ behavior: 'smooth', block: 'start' })`
   對齊，`StopSection` 外層以 `scroll-margin-top` 預留 Header＋展開地圖（＋搜尋頁 sticky 工具列）高度；
   貼合期間暫停地圖縮小約 1.6 秒，之後手勢照常。站序頁 URL 的 `stop` 只作來源站／分享用途。
+- **搜尋輸入**：`SearchBar` 的 `<input>` 是 `readOnly`＋`inputMode="none"`，靠置底的 `VirtualKeyboard`
+  （3×4 數字鍵＋雙欄可捲動常用字母）輸入；不要改回原生可編輯輸入框，否則手機原生鍵盤會再次彈出。
+  新增鍵盤文案要同步補 `useLanguage` 的 `zh`／`en` 字典。
 - **定位記憶**：`useLocation` 以 `hkb:location-consent`（只存 `'granted'`）與 `hkb:last-location`
   （`{ lat, lng, accuracy, updatedAt }`）記憶授權與座標，讀寫一律 `try / catch`；初始化先用快取座標渲染再背景更新，
   不要改回「每次都要使用者手動點定位」。被拒（`error.code === 1`）時清除授權記憶並保留 iOS 的 Safari 設定提示。
