@@ -86,6 +86,18 @@ function rememberLocation(coords, accuracy, updatedAt) {
   )
 }
 
+/** 判斷兩組座標是否為同一地點（預設 15 公尺內視為靜止 GPS 漂移） */
+function isSameSpot(a, b, thresholdMeters = 15) {
+  if (!Number.isFinite(a?.lat) || !Number.isFinite(a?.lng)) return false
+  if (!Number.isFinite(b?.lat) || !Number.isFinite(b?.lng)) return false
+  const rad = Math.PI / 180
+  const dLat = (b.lat - a.lat) * rad
+  const dLng = (b.lng - a.lng) * rad
+  const meanLat = ((a.lat + b.lat) / 2) * rad
+  const x = dLng * Math.cos(meanLat)
+  return Math.hypot(dLat, x) * 6371000 < thresholdMeters
+}
+
 function describeError(error, hasCoords = false) {
   const suffix = hasCoords ? '暫用上次位置。' : '暫用預設位置。'
   switch (error?.code) {
@@ -179,15 +191,18 @@ function getInitialLocationState() {
 export default function useLocation() {
   const [state, setState] = useState(getInitialLocationState)
   const requestId = useRef(0)
+  const inFlightRef = useRef(false)
 
   // 只送出定位請求；狀態更新一律在 geolocation 回呼中非同步發生
-  const requestPosition = useCallback(() => {
+  const requestPosition = useCallback(({ force = false } = {}) => {
     const currentRequest = requestId.current + 1
     requestId.current = currentRequest
+    inFlightRef.current = true
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (requestId.current !== currentRequest) return
+        inFlightRef.current = false
         const coords = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
@@ -196,18 +211,19 @@ export default function useLocation() {
         const updatedAt = Date.now()
         // 記住授權與最新座標：下次開啟可直接用快取渲染並自動更新
         rememberLocation(coords, accuracy, updatedAt)
-        setState({
-          coords,
+        setState((prev) => ({
+          coords: !force && !prev.isFallback && isSameSpot(prev.coords, coords) ? prev.coords : coords,
           status: 'success',
           accuracy,
           error: null,
           isFallback: false,
           updatedAt,
           permission: 'granted',
-        })
+        }))
       },
       (error) => {
         if (requestId.current !== currentRequest) return
+        inFlightRef.current = false
         setState((prev) => buildFailureState(prev, error))
       },
       GEO_OPTIONS,
@@ -229,7 +245,7 @@ export default function useLocation() {
     }
 
     setState((prev) => ({ ...prev, status: 'locating', error: null }))
-    requestPosition()
+    requestPosition({ force: true })
   }, [requestPosition])
 
   // 初始化：查詢瀏覽器權限狀態後自動定位。
@@ -261,8 +277,9 @@ export default function useLocation() {
     const handlePermissionChange = () => {
       if (cancelled || !permissionStatus) return
       applyPermission(permissionStatus.state)
-      // 使用者到瀏覽器設定改成「允許」後回到 App：直接補一次定位
-      if (permissionStatus.state === 'granted') requestPosition()
+      // 使用者到瀏覽器設定改成「允許」後回到 App：若目前沒有進行中的定位才補一次請求，
+      // 避免首次進入按「允許」時與 autoLocate('prompt') 重複發起第二次定位。
+      if (permissionStatus.state === 'granted' && !inFlightRef.current) requestPosition()
     }
 
     if (!navigator.permissions?.query) {

@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Star, TriangleAlert } from 'lucide-react'
 import StopSection from '../components/StopSection.jsx'
 import { EmptyState, ErrorState, StopSkeleton } from '../components/StateViews.jsx'
@@ -6,6 +15,7 @@ import useBusData from '../hooks/useBusData.js'
 import useFavorites, { favoriteKey } from '../hooks/useFavorites.js'
 import useLocation from '../hooks/useLocation.js'
 import useLanguage from '../hooks/useLanguage.js'
+import useMapCollapse from '../hooks/useMapCollapse.js'
 import { getFareUpdatedAt, getNearbyStops } from '../services/api.js'
 import { formatDateTime } from '../utils/format.js'
 
@@ -13,9 +23,9 @@ import { formatDateTime } from '../utils/format.js'
 const StopMap = lazy(() => import('../components/StopMap.jsx'))
 
 /**
- * 附近頁：GPS 定位 → 500 公尺內 KMB + CTB 站點 → 展開查看路線 ETA
+ * 附近頁：GPS 定位 → 500 公尺內 KMB + CTB + GMB 站點 → 單一站點手風琴展開查看路線 ETA
  * 搜尋半徑固定為 500 公尺（見 services/api.js 的 DEFAULT_RADIUS），不提供使用者調整。
- * 只有被展開的站點才會發出 ETA 請求，避免一次打出數十個 API 呼叫。
+ * 預設不展開任何站點；同一時間只展開一站，展開時平滑貼合置頂地圖下緣且不跳動。
  */
 export default function Nearby() {
   const {
@@ -29,41 +39,51 @@ export default function Nearby() {
   } = useLocation()
   const { favorites, toggleFavorite } = useFavorites()
   const { t } = useLanguage()
+  const { collapsed, toggleCollapse, resetCollapse } = useMapCollapse()
 
   const [stops, setStops] = useState([])
   const [error, setError] = useState(null)
   // 已完成的請求識別（座標＋更新次數）；loading 由「目前請求 vs 已完成請求」推導，
   // 避免在 effect 內同步 setState（react/set-state-in-effect）。
   const [loadedRequestKey, setLoadedRequestKey] = useState(null)
-  // 可同時展開多個站點（打開下面站點時不會收起上面已打開的）
-  const [expandedKeys, setExpandedKeys] = useState(() => new Set())
+  // 手風琴：同一時間只展開一個站點，初始預設不開啟任何站點
+  const [activeStopKey, setActiveStopKey] = useState(null)
+  const [alignSeq, setAlignSeq] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
-  // 地圖聚焦的站點（列表點擊 → 地圖 flyTo；地圖圖釘 → 展開卡片並捲動）
+  // 地圖聚焦的站點（列表點擊 → 地圖 flyTo；地圖圖釘 → 展開卡片並貼合地圖下緣）
   const [mapFocus, setMapFocus] = useState(null)
   const [selectedKey, setSelectedKey] = useState(null)
-  // 地圖置頂時往下滑會收起 1/3（210px → 138px），回到頂部附近才展開；
-  // manualExpandRef 記錄使用者是否按過「展開全圖」，暫停自動收起直到再次大幅往下捲動。
-  const [collapsed, setCollapsed] = useState(false)
-  const manualExpandRef = useRef(false)
-  // 自動貼合平滑捲動期間暫停「滑動即收起」，貼合完成後恢復正常偵測
-  const suppressCollapseUntilRef = useRef(0)
-  // 按下「展開全圖」當下的 scrollY：之後要再往下滑 >120px 才重新自動收起
-  const manualExpandYRef = useRef(0)
+
+  const mapStickyRef = useRef(null)
+  const listRef = useRef(null)
   const stopCardRefs = useRef(new Map())
+  const pendingAlignRef = useRef(null)
+  const flipTimerRef = useRef(0)
   const focusSeq = useRef(0)
 
+  const clearFlipStyles = useCallback(() => {
+    window.clearTimeout(flipTimerRef.current)
+    flipTimerRef.current = 0
+    const listEl = listRef.current
+    if (listEl) {
+      listEl.style.transition = ''
+      listEl.style.transform = ''
+    }
+    for (const el of stopCardRefs.current.values()) {
+      el.style.transition = ''
+      el.style.transform = ''
+    }
+  }, [])
+
+  useEffect(() => () => clearFlipStyles(), [clearFlipStyles])
+
   // 地圖與列表共用「目前聚焦站點」；seq 讓同一站點可以重複觸發 flyTo
-  const focusStop = useCallback((stop, { scroll = false } = {}) => {
+  const focusStop = useCallback((stop) => {
     if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lng)) return
     const key = favoriteKey(stop)
     focusSeq.current += 1
     setSelectedKey(key)
     setMapFocus({ key, lat: stop.lat, lng: stop.lng, seq: focusSeq.current })
-    if (scroll) {
-      window.requestAnimationFrame(() => {
-        stopCardRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      })
-    }
   }, [])
 
   const lat = coords?.lat
@@ -86,9 +106,11 @@ export default function Nearby() {
         setStops(list)
         setError(null)
         setLoadedRequestKey(requestKey)
-        // 預設展開最近（排序前）的站點，並把地圖中心移到該站
-        setExpandedKeys(new Set(list.length > 0 ? [favoriteKey(list[0])] : []))
-        if (list.length > 0) focusStop(list[0])
+        // 預設不開啟任何站點；若背景定位刷新前使用者已手動展開某站且該站仍在清單內，則予以保留，
+        // 避免第一次進入網站時剛點開的站點被背景定位更新洗掉而瞬間縮回。
+        setActiveStopKey((prev) =>
+          prev && list.some((stop) => favoriteKey(stop) === prev) ? prev : null,
+        )
       })
       .catch((err) => {
         if (cancelled) return
@@ -100,13 +122,13 @@ export default function Nearby() {
     return () => {
       cancelled = true
     }
-  }, [requestKey, lat, lng, focusStop, t])
+  }, [requestKey, lat, lng, t])
 
-  // 展開中的站點（可同時多個）；refs 必須帶完整站點物件（站名等），
+  // 目前展開的單一站點；refs 必須帶完整站點物件（站名等），
   // 否則展開後 StopSection 只能拿到站點編號，標題會從中文站名變成「5B1C2D3E」這種代碼。
   const expandedStops = useMemo(
-    () => stops.filter((stop) => expandedKeys.has(favoriteKey(stop))),
-    [stops, expandedKeys],
+    () => (activeStopKey ? stops.filter((stop) => favoriteKey(stop) === activeStopKey) : []),
+    [stops, activeStopKey],
   )
   const etaRefs = useMemo(() => expandedStops.map((stop) => ({ ...stop })), [expandedStops])
 
@@ -145,85 +167,136 @@ export default function Nearby() {
     refresh()
   }, [refresh])
 
-  // 捲動偵測（passive + requestAnimationFrame 防抖）：
-  // scrollY > 36 收起地圖、<= 12 展開；手動「展開全圖」後要再大幅下滑（> 160）才重新收起。
-  useEffect(() => {
-    let frame = 0
-    const update = () => {
-      frame = 0
-      if (Date.now() < suppressCollapseUntilRef.current) return
-      const y = window.scrollY
-      if (y <= 12) {
-        manualExpandRef.current = false
-        setCollapsed(false)
-        return
+  // 展開站點時記錄點擊前的畫面座標，交由 useLayoutEffect 在繪製前補償捲動並執行 FLIP 平滑移動
+  const prepareStopAlign = useCallback(
+    (key) => {
+      const listEl = listRef.current
+      const cardEl = stopCardRefs.current.get(key)
+      pendingAlignRef.current = {
+        key,
+        prevKey: activeStopKey,
+        firstListTop: listEl ? listEl.getBoundingClientRect().top : null,
+        firstCardTop: cardEl ? cardEl.getBoundingClientRect().top : null,
       }
-      if (manualExpandRef.current) {
-        if (y > manualExpandYRef.current + 120) {
-          manualExpandRef.current = false
-          setCollapsed(true)
-        }
-        return
-      }
-      if (y > 36) setCollapsed(true)
-    }
-    const handleScroll = () => {
-      if (frame) return
-      frame = window.requestAnimationFrame(update)
-    }
-    handleScroll()
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', handleScroll)
-      if (frame) window.cancelAnimationFrame(frame)
-    }
-  }, [])
+      setAlignSeq((seq) => seq + 1)
+    },
+    [activeStopKey],
+  )
 
-  // 點「展開全圖」：暫時解除自動收起，直到使用者再次大幅往下捲動（>120px）
-  const handleToggleCollapse = useCallback(() => {
-    setCollapsed((prev) => {
-      if (prev) {
-        manualExpandRef.current = true
-        manualExpandYRef.current = window.scrollY
-        return false
-      }
-      manualExpandRef.current = false
-      return true
-    })
-  }, [])
-
-  // 列表點擊站點：切換展開；若是「展開」就同步把地圖飛到該站、並讓置頂地圖回到完整高度，
-  // 這樣 StopSection 的 scroll-margin-top 才能把站點精準貼合在展開的地圖下方。
+  // 列表點擊站點：單一展開手風琴；展開新站時自動收起上一站，並平滑貼合置頂地圖下緣
   const handleToggleStop = useCallback(
     (stop) => {
       const key = favoriteKey(stop)
-      const willExpand = !expandedKeys.has(key)
-      if (willExpand) {
-        focusStop(stop)
-        setCollapsed(false)
-        manualExpandRef.current = false
-        // 讓 StopSection 的 smooth scrollIntoView 完成前不要觸發地圖縮小
-        suppressCollapseUntilRef.current = Date.now() + 1600
+      const willExpand = activeStopKey !== key
+      if (!willExpand) {
+        pendingAlignRef.current = null
+        clearFlipStyles()
+        setActiveStopKey(null)
+        return
       }
-      setExpandedKeys((prev) => {
-        const next = new Set(prev)
-        if (next.has(key)) next.delete(key)
-        else next.add(key)
-        return next
-      })
+      prepareStopAlign(key)
+      focusStop(stop)
+      resetCollapse()
+      setActiveStopKey(key)
     },
-    [expandedKeys, focusStop],
+    [activeStopKey, clearFlipStyles, focusStop, prepareStopAlign, resetCollapse],
   )
 
-  // 點擊地圖圖釘：展開該站（已展開則保持）並捲動到對應卡片
+  // 點擊地圖圖釘：展開該站（已展開則重新對齊）並平滑貼合置頂地圖下緣
   const handleSelectStop = useCallback(
     (stop) => {
       const key = favoriteKey(stop)
-      setExpandedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)))
-      focusStop(stop, { scroll: true })
+      prepareStopAlign(key)
+      focusStop(stop)
+      resetCollapse()
+      setActiveStopKey(key)
     },
-    [focusStop],
+    [focusStop, prepareStopAlign, resetCollapse],
   )
+
+  // 在瀏覽器繪製前同步完成「收起舊站＋對齊新站至地圖下緣」的 scrollY 定位，
+  // 再用 FLIP transform 讓清單與下方卡片從點擊當下的視覺位置平滑滑入定位，徹底消除畫面跳動。
+  useLayoutEffect(() => {
+    const listEl = listRef.current
+    if (!activeStopKey) {
+      if (listEl) listEl.style.paddingBottom = ''
+      return
+    }
+
+    const pending = pendingAlignRef.current
+    if (!pending || pending.key !== activeStopKey) return
+    pendingAlignRef.current = null
+
+    const cardEl = stopCardRefs.current.get(activeStopKey)
+    const mapStickyEl = mapStickyRef.current
+    if (!listEl || !cardEl || !mapStickyEl) return
+
+    clearFlipStyles()
+
+    const cardRect = cardEl.getBoundingClientRect()
+    const mapRect = mapStickyEl.getBoundingClientRect()
+    const currentDocTop = cardRect.top + window.scrollY
+    const currentStickyBottom = mapRect.bottom + 8
+    const targetScrollY = Math.max(0, Math.round(currentDocTop - currentStickyBottom))
+
+    // 確保頁面底部有足夠可捲動空間（避免點開最末幾站或骨架較短時被瀏覽器截斷 scrollY）
+    listEl.style.paddingBottom = ''
+    const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    const neededExtra = Math.ceil(targetScrollY + 180 - maxScrollY)
+    if (neededExtra > 0) {
+      listEl.style.paddingBottom = `${neededExtra}px`
+    }
+
+    window.scrollTo({ top: targetScrollY, behavior: 'instant' })
+
+    const lastListTop = listEl.getBoundingClientRect().top
+    const lastCardTop = cardEl.getBoundingClientRect().top
+    const listDeltaY = pending.firstListTop != null ? pending.firstListTop - lastListTop : 0
+    const cardDeltaY = pending.firstCardTop != null ? pending.firstCardTop - lastCardTop : 0
+    const collapseDeltaY = cardDeltaY - listDeltaY
+
+    const shiftedCards = []
+    if (
+      Math.abs(collapseDeltaY) > 1 &&
+      pending.prevKey &&
+      pending.prevKey !== activeStopKey
+    ) {
+      const prevIndex = orderedStops.findIndex((s) => favoriteKey(s) === pending.prevKey)
+      if (prevIndex >= 0) {
+        for (let i = prevIndex + 1; i < orderedStops.length; i += 1) {
+          const el = stopCardRefs.current.get(favoriteKey(orderedStops[i]))
+          if (el) shiftedCards.push(el)
+        }
+      }
+    }
+
+    const hasListShift = Math.abs(listDeltaY) > 1
+    const hasCardShift = shiftedCards.length > 0
+    if (!hasListShift && !hasCardShift) return
+
+    if (hasListShift) {
+      listEl.style.transition = 'none'
+      listEl.style.transform = `translateY(${listDeltaY}px)`
+    }
+    for (const el of shiftedCards) {
+      el.style.transition = 'none'
+      el.style.transform = `translateY(${collapseDeltaY}px)`
+    }
+
+    // 強制同步 reflow，讓初始位移在第一幀生效後再啟動平滑過渡
+    void listEl.offsetHeight
+
+    if (hasListShift) {
+      listEl.style.transition = 'transform 300ms ease-out'
+      listEl.style.transform = 'translateY(0px)'
+    }
+    for (const el of shiftedCards) {
+      el.style.transition = 'transform 300ms ease-out'
+      el.style.transform = 'translateY(0px)'
+    }
+
+    flipTimerRef.current = window.setTimeout(clearFlipStyles, 320)
+  }, [activeStopKey, alignSeq, orderedStops, clearFlipStyles])
 
   const mapCenter = useMemo(
     () => (Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null),
@@ -233,9 +306,10 @@ export default function Nearby() {
   const isLocating = locationStatus === 'locating'
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 [overflow-anchor:none]">
       {/* 置頂常駐地圖：避開固定 Header 的高度（--app-header-h）後貼在其下緣 */}
       <div
+        ref={mapStickyRef}
         className="sticky top-2 z-20"
         style={{ top: 'calc(var(--app-header-h, 3.5rem) + 0.5rem)' }}
       >
@@ -259,7 +333,7 @@ export default function Nearby() {
             accuracy={accuracy}
             updatedAt={updatedAt}
             collapsed={collapsed}
-            onToggleCollapse={handleToggleCollapse}
+            onToggleCollapse={toggleCollapse}
           />
         </Suspense>
       </div>
@@ -272,19 +346,21 @@ export default function Nearby() {
         </p>
       )}
 
-      {status === 'loading' && <StopSkeleton rows={4} />}
+      {status === 'loading' && stops.length === 0 && <StopSkeleton rows={4} />}
 
-      {status === 'error' && <ErrorState message={error} onRetry={reloadAll} />}
+      {status === 'error' && stops.length === 0 && (
+        <ErrorState message={error} onRetry={reloadAll} />
+      )}
 
       {status === 'ready' && stops.length === 0 && (
         <EmptyState title={t('nearby.emptyTitle')} description={t('nearby.emptyDesc')} />
       )}
 
-      {status === 'ready' && stops.length > 0 && (
-        <div className="space-y-2">
+      {stops.length > 0 && (
+        <div ref={listRef} className="space-y-2">
           {orderedStops.map((stop) => {
             const key = favoriteKey(stop)
-            const isExpanded = expandedKeys.has(key)
+            const isExpanded = activeStopKey === key
             const group = groupsByKey.get(key) ?? { stop, routes: [], error: null }
             // 已展開但 ETA 尚未回來 → 顯示骨架；回來後即使沒有班次也顯示空狀態
             const isLoading = isExpanded && !groupsByKey.has(key)
@@ -302,6 +378,7 @@ export default function Nearby() {
                   distance={stop.distance}
                   isExpanded={isExpanded}
                   onToggle={() => handleToggleStop(stop)}
+                  disableAutoScroll
                   isFavorite={favoriteKeys.has(key)}
                   onToggleFavorite={toggleFavorite}
                   loading={isLoading}

@@ -115,12 +115,10 @@ src/
   **搜尋頁的推算狀態由 `Search` 持有**（`planEnabled`／`planBaseStopId`）：基準站在開啟推算時固定，
   只採用該站的 ETA 作時間原點，其餘站逐段幾何推算；基準站要留在 `useBusData()` 的輪詢清單（收合後仍更新）。
   不要改回「以目前展開站點挑基準」或把其他展開站點的 ETA 混進推算，否則展開站點會令後續 ETA 飄移。
-- **站點展開行為**：附近（`Nearby`）與收藏（`Favorites`）頁的站點卡可**同時展開多個**（用 Set 管理，避免版面跳動）；
-  **站序頁（`RouteSequence`）與搜尋頁站序面板（`Search`／`RouteStopsPanel`）改為手風琴**：同一時間只展開一站
-  （`expandedStopId`／`activeStopId`）。搜尋頁初始不展開、點新站會自動收合上一站；站序頁初始預設來源站、
-  沒有來源站則第一站。展開時呼叫 `resetCollapse()` 並以 `scrollIntoView({ behavior: 'smooth', block: 'start' })`
-  對齊，`StopSection` 外層以 `scroll-margin-top` 預留 Header＋展開地圖（＋搜尋頁 sticky 工具列）高度；
-  貼合期間暫停地圖縮小約 1.6 秒，之後手勢照常。站序頁 URL 的 `stop` 只作來源站／分享用途。
+- **站點展開行為**：只有收藏（`Favorites`）頁的站點卡可同時展開多個（用 Set 管理）；
+  **首頁附近（`Nearby`）、站序頁（`RouteSequence`）與搜尋頁站序面板（`Search`／`RouteStopsPanel`）皆為手風琴**：同一時間只展開一站
+  （`activeStopKey`／`expandedStopId`／`activeStopId`）。首頁與搜尋頁初始預設不展開任何站點，點開新站會自動收合上一站；站序頁初始預設來源站、
+  沒有來源站則第一站。首頁展開站點時以 `useLayoutEffect` 同步捲動補償搭配 FLIP `translateY`（`300ms ease-out`）平滑貼合置頂地圖下緣，消除收合上方站點與背景定位更新造成的跳動或瞬間縮回；搜尋頁與站序頁展開時呼叫 `resetCollapse()` 並以 `scrollIntoView({ behavior: 'smooth', block: 'start' })` 對齊，`StopSection` 外層以 `scroll-margin-top` 預留 Header＋展開地圖（＋搜尋頁 sticky 工具列）高度；貼合期間暫停地圖縮小約 1.6 秒，之後手勢照常。站序頁 URL 的 `stop` 只作來源站／分享用途。
 - **搜尋輸入**：`SearchBar` 的 `<input>` 是 `readOnly`＋`inputMode="none"`，靠置底的 `VirtualKeyboard`
   （3×4 數字鍵＋雙欄可捲動常用字母）輸入；不要改回原生可編輯輸入框，否則手機原生鍵盤會再次彈出。
   新增鍵盤文案要同步補 `useLanguage` 的 `zh`／`en` 字典。

@@ -342,15 +342,23 @@ export default function StopMap({
   }, [focus])
 
   // 高度切換（210px → 138px）後 Leaflet 必須重算容器尺寸，否則圖磚與中心點會偏移。
-  // transitionend 與保險計時器各觸發一次（部分環境不會觸發 transitionend）。
+  // 只監聽外框自身的 height transition，並以 pan: false 避免打斷進行中的 flyTo 動畫。
   useEffect(() => {
     const element = mapWrapRef.current
     if (!element) return undefined
-    const invalidate = () => mapRef.current?.invalidateSize()
-    element.addEventListener('transitionend', invalidate)
+    let done = false
+    const invalidate = () => {
+      if (done) return
+      done = true
+      mapRef.current?.invalidateSize({ pan: false })
+    }
+    const handleTransitionEnd = (event) => {
+      if (event.target === element && event.propertyName === 'height') invalidate()
+    }
+    element.addEventListener('transitionend', handleTransitionEnd)
     const timer = window.setTimeout(invalidate, 320)
     return () => {
-      element.removeEventListener('transitionend', invalidate)
+      element.removeEventListener('transitionend', handleTransitionEnd)
       window.clearTimeout(timer)
     }
   }, [collapsed])

@@ -6,6 +6,10 @@ export const REFRESH_INTERVAL = 30000
 
 const EMPTY_STATE = { groups: [], loading: false, refreshing: false, error: null, updatedAt: null }
 
+function entryProgressKey(stop, entry) {
+  return `${stop?.operator ?? ''}:${stop?.id ?? ''}|${entry.operator}|${entry.route}|${entry.direction}|${entry.destination ?? ''}`
+}
+
 /**
  * 整合 ETA 與票價的請求邏輯（含 30 秒輪詢）
  *
@@ -58,7 +62,7 @@ export default function useBusData(stopRefs = [], options = {}) {
         const results = await Promise.allSettled(stops.map((stop) => getStopEtas(stop)))
         if (cancelled) return
 
-        const groups = stops.map((stop, index) => {
+        const rawGroups = stops.map((stop, index) => {
           const result = results[index]
           const routes = result.status === 'fulfilled' ? filterByRoute(result.value, routeFilter) : []
           return {
@@ -71,23 +75,44 @@ export default function useBusData(stopRefs = [], options = {}) {
           }
         })
 
-        const allFailed = groups.length > 0 && groups.every((group) => group.error)
-        setState({
-          groups,
-          loading: false,
-          refreshing: false,
-          error: allFailed ? '暫時無法取得到站資料，請稍後再試' : null,
-          updatedAt: Date.now(),
+        const allFailed = rawGroups.length > 0 && rawGroups.every((group) => group.error)
+        let activeGroups = rawGroups
+        setState((prev) => {
+          const prevProgress = new Map()
+          for (const prevGroup of prev.groups) {
+            for (const prevEntry of prevGroup.routes ?? []) {
+              if (prevEntry.progress) {
+                prevProgress.set(entryProgressKey(prevGroup.stop, prevEntry), prevEntry.progress)
+              }
+            }
+          }
+          activeGroups =
+            prevProgress.size > 0
+              ? rawGroups.map((group) => ({
+                  ...group,
+                  routes: group.routes.map((entry) => {
+                    const cachedProgress = prevProgress.get(entryProgressKey(group.stop, entry))
+                    return cachedProgress ? { ...entry, progress: cachedProgress } : entry
+                  }),
+                }))
+              : rawGroups
+          return {
+            groups: activeGroups,
+            loading: false,
+            refreshing: false,
+            error: allFailed ? '暫時無法取得到站資料，請稍後再試' : null,
+            updatedAt: Date.now(),
+          }
         })
 
         // 路線卡排序要用「本站到路線終點」的剩餘距離。站序請求較慢，先顯示 ETA 再於背景補上，
         // 補到後只重排一次；作業期間若重新整理／切換站點（groups 參照改變）就忽略舊結果。
         // 個別路線讀取失敗時少了 progress，由 StopSection 退回以到站時間排序（詳見 sortRoutes）。
-        attachRouteProgress(groups)
+        attachRouteProgress(rawGroups)
           .then((groupsWithProgress) => {
             if (cancelled) return
             setState((prev) =>
-              prev.groups === groups ? { ...prev, groups: groupsWithProgress } : prev,
+              prev.groups === activeGroups ? { ...prev, groups: groupsWithProgress } : prev,
             )
           })
           .catch((error) => {

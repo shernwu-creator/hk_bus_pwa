@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Star, X } from 'lucide-react'
 import BusCard from './BusCard.jsx'
@@ -31,6 +31,7 @@ function routeEntryKey(entry) {
  * @param {boolean} props.isExpanded 展開狀態由父層控制（手風琴／多站展開由父層決定）
  * @param {() => void} props.onToggle
  * @param {string} [props.scrollMtClass] 外層 `scroll-margin-top`（讓展開時 scrollIntoView 對齊置頂地圖下方）
+ * @param {boolean} [props.disableAutoScroll] 由父層自行處理平滑貼合（如首頁 FLIP 對齊）時停用內建延遲捲動
  * @param {boolean} [props.isFavorite]
  * @param {() => void} [props.onToggleFavorite]
  * @param {boolean} [props.loading] ETA 載入中
@@ -48,6 +49,7 @@ export default function StopSection({
   isExpanded = false,
   onToggle,
   scrollMtClass = 'scroll-mt-[calc(var(--app-header-h,3.5rem)+226px+var(--stop-scroll-extra,0px))]',
+  disableAutoScroll = false,
   isFavorite = false,
   onToggleFavorite,
   loading = false,
@@ -62,6 +64,14 @@ export default function StopSection({
   const sectionRef = useRef(null)
   const scrollTimerRef = useRef(0)
   const [showAll, setShowAll] = useState(false)
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(scrollTimerRef.current)
+    },
+    [],
+  )
+
   const sortedRoutes = useMemo(() => sortRoutes(group?.routes ?? []), [group?.routes])
   // 同一站點同一路線若有多個目的地（例如循環線去程／回程、特別班次），
   // 卡片要加上「往 X」標示並以顏色區隔；只有一個目的地時維持原本簡潔的 UI。
@@ -121,11 +131,11 @@ export default function StopSection({
   // （scroll-margin-top 由 scrollMtClass 預留 Header + 展開地圖 + 父層 sticky 工具列的高度）
   const handleToggle = () => {
     const willExpand = !isExpanded
+    window.clearTimeout(scrollTimerRef.current)
     onToggle?.()
-    if (willExpand) {
+    if (willExpand && !disableAutoScroll) {
       // 等置頂地圖的高度 transition（300ms）完成後再對齊；450ms 留出 React 提交與
       // transition 緩衝，避免目標位置因版面變高而偏移（實測 320ms 會差 15px）
-      window.clearTimeout(scrollTimerRef.current)
       scrollTimerRef.current = window.setTimeout(() => {
         sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 450)
